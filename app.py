@@ -193,22 +193,48 @@ class Api:
 
     # ── 选文件 ──
     def pick_file(self, kind="media"):
-        types = {
-            "media": ("视频/音频 (*.mp4;*.mkv;*.mov;*.avi;*.flv;*.ts;*.mp3;*.m4a;*.wav;*.flac)", "所有文件 (*.*)"),
-            "doc": ("字幕/文档 (*.srt;*.vtt;*.ass;*.txt;*.md)", "所有文件 (*.*)"),
-            "image": ("图片 (*.png;*.jpg;*.jpeg;*.webp;*.bmp)", "所有文件 (*.*)"),
-        }.get(kind, ("所有文件 (*.*)",))
+        patterns = {
+            "media": "*.mp4;*.mkv;*.mov;*.avi;*.flv;*.ts;*.mp3;*.m4a;*.wav;*.flac",
+            "doc": "*.srt;*.vtt;*.ass;*.txt;*.md",
+            "image": "*.png;*.jpg;*.jpeg;*.webp;*.bmp",
+        }.get(kind, "*.*")
+        title = {"media": "选择视频或音频", "doc": "选择字幕或文档", "image": "选择图片"}.get(kind, "选择文件")
+
         try:
-            dlg_open = getattr(webview, "OPEN_DIALOG", None)
-            if dlg_open is None and hasattr(webview, "FileDialog"):
-                dlg_open = webview.FileDialog.OPEN
-            res = _window.create_file_dialog(dlg_open, allow_multiple=False, file_types=types)
-        except Exception as e:
-            return {"ok": False, "msg": "打开选择框失败：%s" % str(e)[:120]}
-        if not res:
-            return {"ok": False, "msg": "没有选择文件"}
-        path = res[0] if isinstance(res, (list, tuple)) else res
-        return {"ok": True, "path": str(path)}
+            dlg = getattr(webview, "OPEN_DIALOG", None)
+            if dlg is None and hasattr(webview, "FileDialog"):
+                dlg = webview.FileDialog.OPEN
+        except Exception:
+            dlg = None
+
+        # pywebview 各版本对 file_types 的格式要求不一样，
+        # 依次尝试三种写法，都不行就干脆不传过滤条件，保证对话框能弹出来。
+        ascii_name = {"media": "Video Audio", "doc": "Subtitle Document",
+                      "image": "Image"}.get(kind, "Files")
+        attempts = [
+            # 描述尽量用 ASCII：parse_file_type 对中文或斜杠可能解析失败
+            dict(file_types=("%s (%s)" % (ascii_name, patterns), "All files (*.*)")),
+            dict(file_types=("%s (%s)" % (title, patterns), "所有文件 (*.*)")),
+            dict(file_types=[(ascii_name, patterns)]),
+            dict(),
+        ]
+        last = ""
+        for kw in attempts:
+            try:
+                res = _window.create_file_dialog(dlg, allow_multiple=False, **kw)
+            except Exception as e:
+                last = str(e)[:150]
+                continue
+            if res is None:
+                return {"ok": False, "msg": "没有选择文件"}
+            if isinstance(res, (list, tuple)):
+                if not res:
+                    return {"ok": False, "msg": "没有选择文件"}
+                path = res[0]
+            else:
+                path = res
+            return {"ok": True, "path": str(path)}
+        return {"ok": False, "msg": "打开选择框失败：%s" % last}
 
     # ── 跑任务（子进程 + 日志回传）──
     def run_job(self, kind, path, template="subtitle", model="fast"):
