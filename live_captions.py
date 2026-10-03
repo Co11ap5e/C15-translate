@@ -44,6 +44,7 @@ MIN_RMS = 0.0035          # 低于这个音量当静音处理
 class LiveCaptions:
     def __init__(self, on_line=None):
         self.lines = []              # [{ja, zh, ts}]
+        self._pending = ""          # 还没说完的半句，攒着等句末标点
         self.state = "idle"          # idle / running / error
         self.error = ""
         self.device = ""
@@ -52,7 +53,7 @@ class LiveCaptions:
         self.model = "fast"
         self.template = "subtitle"
         self.to_lang = "auto"   # auto / ja2zh / en2zh / zh2ja / zh2en / off
-        self.sil = 0.32         # 多久的停顿算一句话说完（默认调紧：出字更快）
+        self.sil = 0.5          # 多久的停顿算一句话说完（识别已经很快，这里放宽换断句质量）
         self.stats = {"chunks": 0, "skipped": 0, "chars": 0}
         self.on_line = on_line
         self._stop = False
@@ -89,6 +90,7 @@ class LiveCaptions:
         self.chunk = self.sil   # 旧字段留着，别的地方还在读
         self.error = ""
         self.lines = []
+        self._pending = ""
         self.stats = {"chunks": 0, "skipped": 0, "chars": 0}
         self._stop = False
         self.state = "running"
@@ -183,7 +185,7 @@ class LiveCaptions:
         block = int(sr * 0.25)            # 每次读 0.25 秒
         sil_need = max(2, int(round(self.sil / 0.25)))   # 连续这么久静音 = 一句结束
         min_speech = int(sr * 0.45)       # 短于这个不算一句
-        max_len = int(sr * 2)             # 超过 2 秒强制提交：切得碎一点，字幕才跟得上
+        max_len = int(sr * 6)             # 超过 6 秒强制提交：识别只要 0.17 秒，给足上下文
         buf = np.zeros(0, dtype="float32")
         sil = 0
         try:
@@ -236,16 +238,24 @@ class LiveCaptions:
                     continue
                 if self.lines and self.lines[-1]["ja"] == text:
                     continue
-                parts = self._split_parts(text)
-                if len(parts) > 1:
-                    self.stats["split"] = self.stats.get("split", 0) + len(parts) - 1
-                futs = [self._pool.submit(self._translate, p) for p in parts]
-                for part, fut in zip(parts, futs):
-                    try:
-                        zh = fut.result()
-                    except Exception:
-                        zh = ""
-                    self._push(part, zh)
+                # 切段切得碎时，模型常常只听到半句。先把半句攒起来，
+                # 等句末标点出现再一次性上屏，断句才不会被切得七零八落。
+                self._pending = (self._pending + text) if self._pending else text
+                sents, self._pending = self._split_sentences(self._pending)
+                if len(self._pending) > 60:      # 尾巴太长就强行出，别一直不显示
+                    sents.append(self._pending)
+                    self._pending = ""
+                for sent in sents:
+                    parts = self._split_parts(sent)
+                    if len(parts) > 1:
+                        self.stats["split"] = self.stats.get("split", 0) + len(parts) - 1
+                    futs = [self._pool.submit(self._translate, p) for p in parts]
+                    for part, fut in zip(parts, futs):
+                        try:
+                            zh = fut.result()
+                        except Exception:
+                            zh = ""
+                        self._push(part, zh)
             except Exception as e:
                 self.error = str(e)[:150]
             finally:
@@ -267,6 +277,21 @@ class LiveCaptions:
                 self.on_line(line)
             except Exception:
                 pass
+
+    @staticmethod
+    def _split_sentences(text):
+        """只挑出已经说完的句子，没说完的尾巴留着；返回 (完整句子列表, 尾巴)。"""
+        t = (text or "").strip()
+        if not t:
+            return [], ""
+        idx = -1
+        for ch in "。！？!?…":
+            idx = max(idx, t.rfind(ch))
+        if idx < 0:
+            return [], t
+        head, tail = t[:idx + 1], t[idx + 1:].strip()
+        sents = [x.strip() for x in re.split(r"(?<=[。！？!?…])", head) if x.strip()]
+        return sents, tail
 
     @staticmethod
     def _split_parts(text, limit=14, hard=20):
