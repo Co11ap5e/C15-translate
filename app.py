@@ -28,6 +28,7 @@ import pystray
 from PIL import Image, ImageDraw
 
 import live_captions
+import summarize
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 SERVICE = "http://127.0.0.1:18765"
@@ -40,6 +41,7 @@ _tray = None
 _window = None
 _overlay = None
 _live = live_captions.LiveCaptions()
+_sum = {"state": "idle", "text": "", "note": "", "err": "", "mode": "plot"}
 
 
 def job_id():
@@ -104,18 +106,86 @@ class Api:
                 return {"ok": True, "msg": "服务已启动"}
         return {"ok": False, "msg": "启动超时，看看 server.py 是不是报错了"}
 
+    # ── 总结 ──
+    def sum_modes(self):
+        return {k: v["label"] for k, v in summarize.MODES.items()}
+
+    def sum_read(self, path):
+        """读文件并返回字数，界面可以先看一眼内容有多少。"""
+        try:
+            t = summarize.read_text(path)
+            return {"ok": True, "chars": len(t),
+                    "preview": t[:200]}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)[:150]}
+
+    def sum_run(self, mode="plot", path=None, text=None, fast=False):
+        content = text or ""
+        if path:
+            try:
+                content = summarize.read_text(path)
+            except Exception as e:
+                return {"ok": False, "msg": "读取失败：%s" % str(e)[:120]}
+        if not content.strip():
+            return {"ok": False, "msg": "没有内容可总结"}
+        _sum.update({"state": "running", "text": "", "note": "准备中", "err": "", "mode": mode})
+
+        def work():
+            try:
+                r = summarize.summarize(
+                    content, mode, best=not fast,
+                    progress=lambda i, t, n: _sum.update({"note": n}))
+                if r.get("ok"):
+                    _sum.update({"state": "done", "text": r["text"], "note": ""})
+                else:
+                    _sum.update({"state": "error", "err": r.get("msg", "失败")})
+            except Exception as e:
+                _sum.update({"state": "error", "err": str(e)[:200]})
+
+        threading.Thread(target=work, daemon=True).start()
+        return {"ok": True}
+
+    def sum_status(self):
+        return dict(_sum)
+
+    def sum_save(self, text):
+        try:
+            name = "总结-" + time.strftime("%Y%m%d-%H%M%S") + ".md"
+            path = os.path.join(os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else BASE, name)
+            open(path, "w", encoding="utf-8").write(text or "")
+            subprocess.Popen(["notepad.exe", path])
+            return {"ok": True, "path": path}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)[:120]}
+
     # ── 实时字幕 ──
     def live_devices(self):
         return _live.devices()
 
     def live_start(self, device=None, lang="auto", chunk=2.5, model="fast", template="subtitle"):
         r = _live.start(device, lang, chunk, model, template)
-        try:
-            if _overlay:
-                _overlay.show()
-        except Exception:
-            pass
+        self.overlay_show()
         return r
+
+    def overlay_set_pos(self, x, y):
+        try:
+            _overlay.move(int(x), int(y))
+            overlay_save_pos(_overlay)
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)[:100]}
+
+    def overlay_reset_pos(self):
+        try:
+            w = int(_overlay.width or 1100)
+            h = int(_overlay.height or 215)
+            x, y = overlay_default_pos(w, h)
+            _overlay.move(x, y)
+            overlay_save_pos(_overlay)
+            _make_topmost()
+            return {"ok": True, "x": x, "y": y}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)[:100]}
 
     def live_stop(self):
         return _live.stop()
@@ -127,6 +197,8 @@ class Api:
         try:
             if _overlay:
                 _overlay.show()
+                for delay in (0.2, 1.0, 2.0):
+                    threading.Timer(delay, _make_topmost).start()
             return {"ok": True}
         except Exception as e:
             return {"ok": False, "msg": str(e)[:120]}
@@ -134,6 +206,7 @@ class Api:
     def overlay_hide(self):
         try:
             if _overlay:
+                overlay_save_pos(_overlay)
                 _overlay.hide()
             return {"ok": True}
         except Exception as e:
@@ -319,6 +392,59 @@ class Api:
         return res
 
 
+import ctypes
+
+
+def _make_topmost(title="实时字幕"):
+    """pywebview 的 on_top 在 Edge 内核上不总是生效，用 Win32 再钉一次。"""
+    if os.name != "nt":
+        return
+    try:
+        u = ctypes.windll.user32
+        hwnd = u.FindWindowW(None, title)
+        if hwnd:
+            HWND_TOPMOST = -1
+            SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW = 0x0002, 0x0001, 0x0040
+            u.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                           SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def overlay_default_pos(w, h):
+    """默认放屏幕底部居中，字幕看着最舒服。"""
+    try:
+        sc = webview.screens[0]
+        sw, sh = int(sc.width), int(sc.height)
+    except Exception:
+        sw, sh = 1920, 1080
+    return max(0, (sw - w) // 2), max(0, sh - h - 90)
+
+
+def overlay_load_pos(w, h):
+    path = os.path.join(BASE, "overlay_pos.json")
+    try:
+        d = json.load(open(path, encoding="utf-8"))
+        x, y = int(d["x"]), int(d["y"])
+        sc = webview.screens[0]
+        # 屏幕变了（比如换了显示器）就退回默认位置
+        if 0 <= x <= int(sc.width) - 100 and 0 <= y <= int(sc.height) - 60:
+            return x, y
+    except Exception:
+        pass
+    return overlay_default_pos(w, h)
+
+
+def overlay_save_pos(win):
+    try:
+        json.dump({"x": int(win.x), "y": int(win.y)},
+                  open(os.path.join(BASE, "overlay_pos.json"), "w", encoding="utf-8"))
+    except Exception:
+        pass
+
+
 def make_tray_image():
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
@@ -393,10 +519,12 @@ def main():
     try:
         with open(os.path.join(BASE, "web", "overlay.html"), encoding="utf-8") as f:
             ohtml = f.read()
+        ow, oh = 1100, 215
+        ox, oy = overlay_load_pos(ow, oh)
         _overlay = webview.create_window(
             "实时字幕", html=ohtml, js_api=api,
             frameless=True, easy_drag=True, on_top=True, transparent=True,
-            width=1100, height=215, x=160, y=60, resizable=True, hidden=True,
+            width=ow, height=oh, x=ox, y=oy, resizable=True, hidden=True,
         )
     except Exception as e:
         print("[overlay]", e)

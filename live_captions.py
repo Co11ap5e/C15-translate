@@ -45,7 +45,7 @@ class LiveCaptions:
         self.error = ""
         self.device = ""
         self.lang = "auto"
-        self.chunk = 2.5
+        self.chunk = 2.5   # 兼容旧参数，实际由静音切分决定
         self.model = "fast"
         self.template = "subtitle"
         self.stats = {"chunks": 0, "skipped": 0, "chars": 0}
@@ -125,28 +125,39 @@ class LiveCaptions:
             self.state, self.error = "error", str(e)[:160]
             return
 
-        need = int(sr * self.chunk)
+        # 按静音切句：一句话说完（静音够久）才提交，不再固定切 2.5 秒把句子切断
+        block = int(sr * 0.25)            # 每次读 0.25 秒
+        sil_need = max(2, int(0.45 / 0.25))   # 连续 0.45 秒静音 = 一句结束
+        min_speech = int(sr * 0.45)       # 短于这个不算一句
+        max_len = int(sr * 12)            # 超过 12 秒强制提交，免得一直等
+        buf = np.zeros(0, dtype="float32")
+        sil = 0
         try:
             with mic.recorder(samplerate=sr, channels=1) as rec:
-                buf = []
                 while not self._stop:
-                    block = rec.record(numframes=int(sr * 0.25))
-                    buf.append(block)
-                    total = sum(len(b) for b in buf)
-                    if total < need:
+                    blk = np.asarray(rec.record(numframes=block), dtype="float32").reshape(-1)
+                    if not len(blk):
                         continue
-                    audio = np.concatenate(buf)
-                    rest = audio[need:]
-                    buf = [rest] if len(rest) else []
-                    audio = audio[:need]
+                    rms = float(np.sqrt(np.mean(blk ** 2)))
+                    buf = np.concatenate([buf, blk])
+                    sil = sil + 1 if rms < MIN_RMS else 0
 
-                    rms = float(np.sqrt(np.mean(audio.astype("float32") ** 2)))
-                    if rms < MIN_RMS:
+                    done = (sil >= sil_need and len(buf) >= min_speech) or len(buf) >= max_len
+                    if not done:
+                        continue
+                    cut = len(buf) - sil * block if sil else len(buf)
+                    seg = buf[:cut]
+                    buf = buf[cut:] if cut < len(buf) else np.zeros(0, dtype="float32")
+                    sil = 0
+
+                    if len(seg) < min_speech:
+                        continue
+                    if float(np.sqrt(np.mean(seg ** 2))) < MIN_RMS:
                         self.stats["skipped"] += 1
                         continue
 
                     self.stats["chunks"] += 1
-                    text = self._transcribe(self._to_wav(audio, sr), self.lang)
+                    text = self._transcribe(self._to_wav(seg, sr), self.lang)
                     if not text:
                         continue
                     if self.lines and self.lines[-1]["ja"] == text:

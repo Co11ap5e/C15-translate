@@ -9,7 +9,11 @@
     -webkit-user-select:none;user-select:none;cursor:move}
   #box{margin:6px;padding:10px 16px 12px;border-radius:10px;
     background:rgba(13,17,23,.80);border:1px solid rgba(48,54,61,.9);
-    box-shadow:0 6px 22px rgba(0,0,0,.45)}
+    box-shadow:0 6px 22px rgba(0,0,0,.45);
+    height:calc(100% - 12px);box-sizing:border-box;overflow:hidden}
+  /* 里面的元素不接收鼠标事件，这样点在任何位置都算点在 #box 上，
+     pywebview 的拖动才会在整块区域生效（它只认直接命中的元素） */
+  #box > *{pointer-events:none}
   #bar{display:flex;align-items:center;gap:8px;font-size:11.5px;color:#8b949e;
     border-bottom:1px solid rgba(48,54,61,.8);padding-bottom:6px;margin-bottom:8px}
   #dot{width:8px;height:8px;border-radius:50%;background:#8b949e}
@@ -25,13 +29,13 @@
 </style>
 </head>
 <body>
-<div id="box">
-  <div id="bar">
+<div id="box" class="pywebview-drag-region">
+  <div id="bar" class="pywebview-drag-region">
     <span id="dot"></span>
     <span id="state">等待开始</span>
     <span id="stat"></span>
   </div>
-  <div id="cur"><div class="zh" id="zh0">在软件里点「开始」后，这里会显示字幕</div><div class="ja" id="ja0"></div></div>
+  <div id="cur" class="pywebview-drag-region"><div class="zh" id="zh0">在软件里点「开始」后，这里会显示字幕</div><div class="ja" id="ja0"></div></div>
   <div class="old" id="prev" style="display:none"><div class="zh" id="zh1"></div></div>
 </div>
 

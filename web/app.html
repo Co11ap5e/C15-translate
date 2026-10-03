@@ -65,6 +65,7 @@
   <button data-p="doc">文档</button>
   <button data-p="image">图片</button>
   <button data-p="live">实时字幕</button>
+  <button data-p="sum">总结</button>
   <button data-p="set">设置</button>
 </nav>
 
@@ -184,6 +185,39 @@
     </div>
   </section>
 
+  <!-- 总结 -->
+  <section class="page" id="p-sum">
+    <div class="card">
+      <h2>内容总结</h2>
+      <div class="row">
+        <label>总结方式</label>
+        <select id="sum-mode"></select>
+        <label>模型</label>
+        <select id="sum-fast">
+          <option value="0" selected>7b（准确，慢一些）</option>
+          <option value="1">3b（快，粗一些）</option>
+        </select>
+      </div>
+      <div class="row">
+        <button class="gh" id="sum-pick">选择字幕或文档</button>
+        <div class="path" id="sum-path">还没有选择文件</div>
+      </div>
+      <div class="row">
+        <button class="pri" id="sum-go">开始总结</button>
+        <span class="hint" id="sum-note"></span>
+      </div>
+      <p class="hint">支持 srt、vtt、ass 字幕和 txt、md 文本。字幕会先去掉时间轴再交给模型。
+        内容太长时先分段各总结一遍，再合并成一份，所以很长的字幕也能处理。</p>
+      <textarea id="sum-paste" placeholder="也可以直接在这里粘贴文本（和上面选文件二选一）" style="min-height:90px"></textarea>
+      <div class="card" style="margin:12px 0 0"><h2>结果</h2>
+        <div class="out" id="sum-out" style="font-size:13.5px"></div>
+        <div class="row" style="margin-top:10px">
+          <button class="gh" id="sum-save" disabled>保存并打开</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- 设置 -->
   <section class="page" id="p-set">
     <div class="card">
@@ -268,6 +302,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('on', p.id === 'p-' + b.dataset.p));
   if(b.dataset.p === 'set') loadHistory();
   if(b.dataset.p === 'live') loadLiveDevices();
+  if(b.dataset.p === 'sum') loadSumModes();
   if(b.dataset.p === 'text') $('#src').focus();
 });
 
@@ -403,6 +438,62 @@ $('#live-stop').onclick = async () => {
 };
 $('#live-overlay').onclick = () => api && api.overlay_show();
 $('#live-overlay-hide').onclick = () => api && api.overlay_hide();
+
+
+// ── 总结 ──
+let sumPath = '', sumTimer = null;
+async function loadSumModes(){
+  if(!api) return;
+  const modes = await api.sum_modes();
+  const sel = $('#sum-mode');
+  if(!sel) return;
+  sel.innerHTML = '';
+  Object.keys(modes).forEach(k => {
+    const o = document.createElement('option');
+    o.value = k; o.textContent = modes[k];
+    sel.appendChild(o);
+  });
+}
+$('#sum-pick').onclick = async () => {
+  const r = await api.pick_file('doc');
+  if(r.ok){
+    sumPath = r.path;
+    const el = $('#sum-path');
+    el.textContent = r.path; el.classList.add('set');
+    const info = await api.sum_read(r.path);
+    $('#sum-note').textContent = info.ok ? `读到 ${info.chars} 字` : (info.msg || '');
+  } else if(r.msg && r.msg !== '没有选择文件'){
+    $('#sum-note').textContent = r.msg;
+  }
+};
+$('#sum-go').onclick = async () => {
+  if(!api) return;
+  const pasted = $('#sum-paste').value.trim();
+  if(!sumPath && !pasted){ $('#sum-note').textContent = '先选文件或粘贴文本'; return; }
+  $('#sum-out').textContent = '';
+  $('#sum-save').disabled = true;
+  $('#sum-note').textContent = '提交中…';
+  const r = await api.sum_run($('#sum-mode').value, pasted ? null : sumPath, pasted || null,
+                              $('#sum-fast').value === '1');
+  if(!r.ok){ $('#sum-note').textContent = r.msg || '失败'; return; }
+  if(sumTimer) clearInterval(sumTimer);
+  sumTimer = setInterval(async () => {
+    const s = await api.sum_status();
+    if(s.state === 'running'){ $('#sum-note').textContent = s.note || '处理中…'; return; }
+    clearInterval(sumTimer); sumTimer = null;
+    if(s.state === 'done'){
+      $('#sum-out').textContent = s.text;
+      $('#sum-note').textContent = '完成';
+      $('#sum-save').disabled = false;
+    } else {
+      $('#sum-note').textContent = '失败：' + (s.err || '');
+    }
+  }, 1200);
+};
+$('#sum-save').onclick = async () => {
+  const r = await api.sum_save($('#sum-out').textContent);
+  $('#sum-note').textContent = r.ok ? ('已保存到 ' + r.path) : (r.msg || '保存失败');
+};
 
 // 历史
 async function loadHistory(){
