@@ -159,6 +159,14 @@ python app.py
 要点、人物或时间线，不用另外导出字幕。也可以选文件（srt、vtt、ass、txt、md）
 或者直接粘贴文本。内容长的时候先分段各总结一遍再合并，所以整季字幕也吃得下。
 
+### 为什么 exe 要管理员权限
+
+`Host.cs` 编出来的 `本地翻译.exe` 内嵌了 `host/app.manifest`，声明 `requireAdministrator`。
+原因是这台机器的 explorer 本身是提权运行的，Windows 的通知区只接受提权进程注册托盘图标 ——
+非提权进程调 `Shell_NotifyIcon` 会返回 `ERROR_ACCESS_DENIED`（5），所以双击会先弹一次 UAC。
+不想要这个弹窗，就把 manifest 里的 `requireAdministrator` 改成 `asInvoker` 重新编译，
+代价是没有托盘图标（其它功能不受影响）。
+
 ### 打包
 
 用的是便携包，双击 `本地翻译.exe` 就是整个程序：它是 `host/Host.cs` 编译出来的一个小宿主（30 行），
