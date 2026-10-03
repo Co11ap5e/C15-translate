@@ -62,7 +62,7 @@ user32.CreateWindowExW.restype = wintypes.HWND
 user32.DefWindowProcW.restype = LRESULT
 user32.LoadImageW.restype = wintypes.HANDLE
 user32.CreatePopupMenu.restype = wintypes.HMENU
-user32.GetModuleHandleW.restype = wintypes.HMODULE
+kernel32.GetModuleHandleW.restype = wintypes.HMODULE
 shell32.Shell_NotifyIconW.restype = wintypes.BOOL
 
 
