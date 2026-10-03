@@ -53,12 +53,12 @@ def deepl_key():
     for path in (os.path.join(here, "deepl.json"), os.path.join(here, "deepl-key.txt")):
         try:
             if os.path.isfile(path):
-                raw = io.open(path, encoding="utf-8").read().strip()
+                raw = open(path, encoding="utf-8-sig").read().strip()
                 if raw.startswith("{"):
                     return (json.loads(raw).get("key") or "").strip()
                 return raw
-        except Exception:
-            pass
+        except Exception as e:
+            print("[deepl] 读 key 失败 %s: %r" % (path, e))
     return ""
 
 
