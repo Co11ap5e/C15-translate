@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>实时字幕</title>
+<style>
+  html,body{margin:0;padding:0;background:transparent;overflow:hidden;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
+    -webkit-user-select:none;user-select:none;cursor:move}
+  #box{margin:6px;padding:10px 16px 12px;border-radius:10px;
+    background:rgba(13,17,23,.80);border:1px solid rgba(48,54,61,.9);
+    box-shadow:0 6px 22px rgba(0,0,0,.45)}
+  #bar{display:flex;align-items:center;gap:8px;font-size:11.5px;color:#8b949e;
+    border-bottom:1px solid rgba(48,54,61,.8);padding-bottom:6px;margin-bottom:8px}
+  #dot{width:8px;height:8px;border-radius:50%;background:#8b949e}
+  #dot.on{background:#3fb950}
+  #state{flex:1}
+  .zh{font-size:29px;line-height:1.35;color:#e6edf3;font-weight:600;
+    text-shadow:0 1px 3px rgba(0,0,0,.8);white-space:pre-wrap}
+  .ja{font-size:17px;line-height:1.4;color:#8b949e;margin-top:3px;white-space:pre-wrap}
+  .old .zh{font-size:20px;color:#c9d1d9;font-weight:400}
+  .old .ja{display:none}
+  .old{margin-top:7px;padding-top:7px;border-top:1px dashed rgba(48,54,61,.7)}
+  #wait{color:#8b949e;font-size:17px}
+</style>
+</head>
+<body>
+<div id="box">
+  <div id="bar">
+    <span id="dot"></span>
+    <span id="state">等待开始</span>
+    <span id="stat"></span>
+  </div>
+  <div id="cur"><div class="zh" id="zh0">在软件里点「开始」后，这里会显示字幕</div><div class="ja" id="ja0"></div></div>
+  <div class="old" id="prev" style="display:none"><div class="zh" id="zh1"></div></div>
+</div>
+
+<script>
+function $(s){ return document.querySelector(s); }
+let api = null, started = false;
+
+function boot(){
+  if(started || !window.pywebview || !window.pywebview.api) return;
+  started = true;
+  api = window.pywebview.api;
+  setInterval(tick, 700);
+  tick();
+}
+window.addEventListener('pywebviewready', boot);
+window.addEventListener('DOMContentLoaded', () => setTimeout(boot, 500));
+
+async function tick(){
+  if(!api) return;
+  let s;
+  try { s = await api.live_status(4); } catch(e) { return; }
+  const lines = (s && s.lines) || [];
+  $('#dot').classList.toggle('on', s.state === 'running');
+  $('#state').textContent = s.state === 'running'
+      ? ('识别中 · ' + (s.device || '').replace(/\s*\(.*?\)\s*/g, ' ').trim())
+      : (s.state === 'error' ? ('出错：' + (s.error || '')) : '已停止');
+  const st = s.stats || {};
+  $('#stat').textContent = st.chunks ? `${st.chunks} 段` : '';
+
+  if(!lines.length){
+    $('#zh0').textContent = s.state === 'running' ? '在听…' : '在软件里点「开始」后，这里会显示字幕';
+    $('#ja0').textContent = '';
+    $('#prev').style.display = 'none';
+    return;
+  }
+  const last = lines[lines.length - 1];
+  $('#zh0').textContent = last.zh || last.ja;
+  $('#ja0').textContent = last.zh ? last.ja : '';
+  if(lines.length >= 2){
+    $('#prev').style.display = '';
+    $('#zh1').textContent = lines[lines.length - 2].zh || lines[lines.length - 2].ja;
+  } else {
+    $('#prev').style.display = 'none';
+  }
+}
+</script>
+</body>
+</html>

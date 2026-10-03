@@ -27,6 +27,8 @@ import webview
 import pystray
 from PIL import Image, ImageDraw
 
+import live_captions
+
 BASE = os.path.dirname(os.path.abspath(__file__))
 SERVICE = "http://127.0.0.1:18765"
 CONFIG = os.path.join(BASE, "config.json")
@@ -36,6 +38,8 @@ _job_seq = 0
 _service_proc = None
 _tray = None
 _window = None
+_overlay = None
+_live = live_captions.LiveCaptions()
 
 
 def job_id():
@@ -99,6 +103,41 @@ class Api:
             if service_alive():
                 return {"ok": True, "msg": "服务已启动"}
         return {"ok": False, "msg": "启动超时，看看 server.py 是不是报错了"}
+
+    # ── 实时字幕 ──
+    def live_devices(self):
+        return _live.devices()
+
+    def live_start(self, device=None, lang="auto", chunk=2.5, model="fast", template="subtitle"):
+        r = _live.start(device, lang, chunk, model, template)
+        try:
+            if _overlay:
+                _overlay.show()
+        except Exception:
+            pass
+        return r
+
+    def live_stop(self):
+        return _live.stop()
+
+    def live_status(self, n=8):
+        return _live.status(n)
+
+    def overlay_show(self):
+        try:
+            if _overlay:
+                _overlay.show()
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)[:120]}
+
+    def overlay_hide(self):
+        try:
+            if _overlay:
+                _overlay.hide()
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)[:120]}
 
     # ── 配置 ──
     def get_config(self):
@@ -322,6 +361,19 @@ def main():
     def on_loaded():
         if not service_alive():
             api.start_service()
+
+    # 独立的置顶字幕窗，无边框、可拖动，初始隐藏
+    global _overlay
+    try:
+        with open(os.path.join(BASE, "web", "overlay.html"), encoding="utf-8") as f:
+            ohtml = f.read()
+        _overlay = webview.create_window(
+            "实时字幕", html=ohtml, js_api=api,
+            frameless=True, easy_drag=True, on_top=True, transparent=True,
+            width=1100, height=215, x=160, y=60, resizable=True, hidden=True,
+        )
+    except Exception as e:
+        print("[overlay]", e)
 
     _window.events.loaded += on_loaded
     threading.Thread(target=tray_thread, args=(api,), daemon=True).start()
