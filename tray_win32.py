@@ -197,8 +197,19 @@ class Tray:
 
     def run(self):
         self.add()
-        hk = user32.RegisterHotKey(self.hwnd, 1, MOD_ALT | MOD_CONTROL, 0x54)
-        self.log("RegisterHotKey(Ctrl+Alt+T) -> %s (err=%s)" % (hk, ctypes.get_last_error()))
+        hk = 0
+        combos = [("Ctrl+Alt+L", MOD_ALT | MOD_CONTROL, 0x4C),
+                  ("Ctrl+Alt+F9", MOD_ALT | MOD_CONTROL, 0x78),
+                  ("Ctrl+Shift+F9", MOD_CONTROL | 0x0004, 0x78),
+                  ("Ctrl+Alt+F8", MOD_ALT | MOD_CONTROL, 0x77),
+                  ("Ctrl+Alt+W", MOD_ALT | MOD_CONTROL, 0x57)]
+        for label, mods, vk in combos:
+            if user32.RegisterHotKey(self.hwnd, 1, mods, vk):
+                hk = 1
+                self.hotkey_label = label
+                self.log("热键注册成功: " + label)
+                break
+            self.log("热键 %s 被占用 (err=%s)" % (label, ctypes.get_last_error()))
         if not self.added and not hk:
             raise RuntimeError("托盘和热键都没建起来，看 tray.log")
         msg = wintypes.MSG()
