@@ -638,6 +638,23 @@ def tray_thread(api):
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("退出", quit_),
     )
+    # 先用自己写的 Win32 托盘（会写日志、能看见失败原因），不行再退回 pystray
+    try:
+        import tray_win32
+
+        tray_win32.Tray(
+            os.path.join(RES, "app.ico"), "本地翻译",
+            [("显示窗口", lambda: show(None, None)),
+             ("隐藏窗口", lambda: hide(None, None)),
+             ("翻译剪贴板", lambda: clip(None, None)),
+             "sep",
+             ("退出", lambda: quit_(None, None))],
+            os.path.join(WORK, "tray.log"),
+        ).run()
+        return
+    except Exception as _tw:
+        print("[tray win32]", _tw)
+
     global _tray
     # pystray 建消息窗口时会调 ChangeWindowMessageFilterEx，有些权限环境下 access denied，
     # 把这一次调用变成空操作（UIPI 消息过滤对我们没影响）。
