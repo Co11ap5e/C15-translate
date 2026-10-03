@@ -81,6 +81,7 @@ class Tray:
         self._cmd = {}
         self.added = False
         self.taskbar_msg = 0
+        self._procs = []
 
     def log(self, msg):
         line = "%s  %s" % (time.strftime("%H:%M:%S"), msg)
@@ -158,7 +159,9 @@ class Tray:
 
     def add(self):
         hinst = kernel32.GetModuleHandleW(None)
-        self._proc = WNDPROC(self._wndproc)
+        if self._proc is None:
+            self._proc = WNDPROC(self._wndproc)
+            self._procs.append(self._proc)
         cls = "LocalTranslateTray"
         wc = WNDCLASSEXW()
         wc.cbSize = ctypes.sizeof(WNDCLASSEXW)
