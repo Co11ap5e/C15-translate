@@ -691,9 +691,11 @@ def main():
             api.start_service()
 
     def on_closing():
-        """关主窗口只是收起来，字幕窗还要继续挂在视频上；真要退出走托盘或设置页。"""
+        """关主窗口不退出：缩到任务栏（任务栏按钮一定点得回来），字幕窗继续挂在视频上。
+        这台机器的托盘图标和全局热键都被系统挡掉了，所以只留任务栏这条路。
+        真要退出用设置页里的「退出程序」。"""
         try:
-            _window.hide()
+            _window.minimize()
         except Exception:
             pass
         return False
