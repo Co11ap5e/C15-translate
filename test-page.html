@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>日文测试页 · LocalTranslate</title>
+<style>body{max-width:760px;margin:40px auto;font:16px/2 system-ui,"Yu Gothic","Microsoft YaHei",sans-serif;padding:0 20px;color:#222}
+h1{font-size:24px}h2{font-size:18px;margin-top:28px;color:#1d4ed8}p{margin:14px 0}
+.hint{background:#eef4ff;border-left:4px solid #4f8ff7;padding:10px 14px;border-radius:6px;color:#334}
+code{background:#f2f4f7;padding:1px 5px;border-radius:4px}</style></head><body>
+<h1>日文测试页</h1>
+<div class="hint">用法：装好油猴脚本后打开本页 → 按 <code>Alt+T</code> 翻译；右下角面板可切换语言/模型。<br>
+若右下角没出现面板，说明脚本没装成功。</div>
+
+<h2>一、日常会话</h2>
+<p>今日は朝から雨が降っていたので、家で新しいアニメを観ることにした。</p>
+<p>主人公が困難に立ち向かう姿に、思わず引き込まれてしまった。途中で何度も涙が出そうになったが、最後には希望を感じることができた。</p>
+<p>夕方になると雨もやみ、近所の公園を散歩しながら、友達と感想を語り合った。</p>
+
+<h2>二、ニュース風</h2>
+<p>政府は来年度の予算案について、社会保障費の見直しを進める方針を明らかにした。専門家からは慎重な議論が必要だとの指摘も出ている。</p>
+<p>新しい技術を学ぶのは楽しいですが、時々難しいと感じることもあります。特に専門用語が多い分野では、基礎から順に理解していくことが大切です。</p>
+
+<h2>三、短いラベル（翻訳対象外になる想定）</h2>
+<button>送信</button> <button>キャンセル</button> <span>OK</span>
+<p>↑ 这些短词/按钮不该被翻译（minLen=8 会跳过 ✓）</p>
+
+<h2>四、代码块（不应被翻译）</h2>
+<pre><code>const greeting = "こんにちは";  // 代码里的日文不该被翻
+console.log(greeting);</code></pre>
+
+<h2>五、长段落（测并发）</h2>
+<p>日本語の文章を中国語に翻訳するとき、もっとも難しいのは「文脈」と「ニュアンス」だと言われています。直訳すると不自然になり、意訳しすぎると原文の意味から離れてしまいます。そのため、機械翻訳だけでなく、人間の目で確認することが今でも重要です。</p>
+<p>しかし近年、大規模言語モデルの登場によって、翻訳の品質は飛躍的に向上しました。特に、専門用語や固有名詞の扱いが改善され、より自然な表現が可能になっています。</p>
+</body></html>

@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "本地翻译 · 双语对照",
+  "version": "1.0.0",
+  "description": "本地 qwen2.5 驱动的整页日译中：双语对照 / 仅译文 / 鼠标悬停 / 划词 / 输入框，全部离线不上传。",
+  "permissions": ["storage", "contextMenus"],
+  "host_permissions": [
+    "http://127.0.0.1:18765/*",
+    "http://localhost:18765/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_title": "本地翻译：点击翻译/还原本页"
+  }
+}

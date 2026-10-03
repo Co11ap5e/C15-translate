@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>本地翻译 · LocalTranslate</title>
+<style>
+  :root{--bg:#0b1220;--card:#111a2e;--line:#1f2937;--fg:#e5e7eb;--dim:#94a3b8;--acc:#60a5fa;--ok:#34d399;--warn:#fbbf24}
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--fg);font-family:system-ui,'Microsoft YaHei',sans-serif;margin:0;padding:20px}
+  h1{font-size:19px;margin:0 0 4px}
+  .sub{color:var(--dim);font-size:12px;margin-bottom:14px}
+  .bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+  select,button{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:13px}
+  button{cursor:pointer}
+  button.primary{background:#1d4ed8;border-color:#2563eb}
+  button:hover{border-color:var(--acc)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:860px){.grid{grid-template-columns:1fr}}
+  .pane{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;min-height:340px}
+  .pane h2{font-size:13px;color:var(--acc);margin:0 0 8px;display:flex;justify-content:space-between}
+  textarea{flex:1;background:#0b1220;color:var(--fg);border:1px solid var(--line);border-radius:9px;padding:11px;
+           font-family:inherit;font-size:15px;line-height:1.75;resize:vertical;min-height:280px}
+  #out{white-space:pre-wrap;font-size:15px;line-height:1.75;overflow:auto;flex:1;padding:2px}
+  .stat{color:var(--dim);font-size:12px;margin-top:8px;display:flex;gap:14px;flex-wrap:wrap}
+  .tag{background:#0b1220;border:1px solid var(--line);border-radius:20px;padding:2px 9px;font-size:11px;color:var(--dim)}
+  .ok{color:var(--ok)} .warn{color:var(--warn)}
+  code{background:#0b1220;border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px;color:#7dd3fc}
+</style>
+</head>
+<body>
+<h1>🌐 本地翻译 <span class="tag">Ollama · qwen2.5</span></h1>
+<div class="sub">完全跑在你自己的电脑上 · 不联网 · 免费 · 隐私安全　|　接口：<code>POST /translate</code> · <code>POST /v1/chat/completions</code></div>
+
+<div class="bar">
+  <select id="lang"></select>
+  <select id="model">
+    <option value="fast">快 (3b · ~89 tok/s)</option>
+    <option value="best">准 (7b · ~31 tok/s)</option>
+    <option value="tiny">极速 (1.5b)</option>
+  </select>
+  <button class="primary" id="go">翻译 (Ctrl+Enter)</button>
+  <button id="swap">⇄ 反向</button>
+  <button id="copy">复制译文</button>
+  <button id="clear">清空</button>
+  <span class="tag" id="health">检测中…</span>
+</div>
+
+<div class="grid">
+  <div class="pane">
+    <h2><span>原文</span><span class="tag" id="cnt">0 字</span></h2>
+    <textarea id="src" placeholder="把日语/英语/中文粘到这里…（Ctrl+Enter 直接翻译）"></textarea>
+  </div>
+  <div class="pane">
+    <h2><span>译文</span><span class="tag" id="speed">-</span></h2>
+    <div id="out"></div>
+  </div>
+</div>
+
+<div class="stat">
+  <span id="status">就绪</span>
+  <span id="latency"></span>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let langs = {};
+
+async function health(){
+  try{
+    const r = await fetch('/health'); const d = await r.json();
+    langs = d.langs || {};
+    $('#lang').innerHTML = Object.entries(langs).map(([k,v])=>`<option value="${k}">${v}</option>`).join('');
+    const loaded = (d.loaded||[]).map(m=>`${m.name} ${m.vram_gb}G/${m.size_gb}G (GPU ${m.gpu_pct}%)`).join(' · ') || '未加载';
+    const inst = (d.installed||[]).join(', ');
+    $('#health').innerHTML = d.ok
+      ? `<span class="ok">● Ollama 已连接</span>　已装: ${inst}　驻留: ${loaded}`
+      : `<span class="warn">● 连不上 Ollama</span>`;
+  }catch(e){ $('#health').innerHTML = '<span class="warn">● 服务异常</span>'; }
+}
+
+async function translate(){
+  const text = $('#src').value.trim();
+  if(!text){ return; }
+  const lang = $('#lang').value, model = $('#model').value;
+  $('#out').textContent = ''; $('#status').textContent = '翻译中…'; $('#speed').textContent = '-';
+  const t0 = Date.now();
+  try{
+    const r = await fetch('/translate', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({text, lang, model, stream:true})
+    });
+    if(!r.ok){ const e = await r.json(); throw new Error(e.error||r.status); }
+    const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    while(true){
+      const {done, value} = await reader.read();
+      if(done) break;
+      buf += dec.decode(value, {stream:true});
+      const parts = buf.split('\n\n'); buf = parts.pop();
+      for(const p of parts){
+        const line = p.replace(/^data: /,'').trim();
+        if(!line || line === '[DONE]') continue;
+        let d; try{ d = JSON.parse(line); }catch(e){ continue; }
+        if(d.type === 'delta'){ $('#out').textContent += d.text; $('#out').scrollTop = $('#out').scrollHeight; }
+        else if(d.type === 'done'){
+          $('#speed').textContent = `${d.tokens||0} tokens · ${d.tok_s||0} tok/s`;
+          $('#status').innerHTML = `<span class="ok">✓ 完成</span>`;
+          $('#latency').textContent = `用时 ${d.wall_s||((Date.now()-t0)/1000).toFixed(1)} 秒`;
+        }
+        else if(d.type === 'error'){ $('#status').innerHTML = `<span class="warn">✗ ${d.error}</span>`; }
+      }
+    }
+  }catch(e){ $('#status').innerHTML = `<span class="warn">✗ ${e.message}</span>`; }
+}
+
+$('#go').onclick = translate;
+$('#src').addEventListener('keydown', e => { if(e.ctrlKey && e.key === 'Enter') translate(); });
+$('#src').addEventListener('input', e => { $('#cnt').textContent = e.target.value.length + ' 字'; });
+$('#copy').onclick = () => { navigator.clipboard.writeText($('#out').textContent); $('#status').textContent='已复制 ✓'; };
+$('#clear').onclick = () => { $('#src').value=''; $('#out').textContent=''; $('#cnt').textContent='0 字'; $('#speed').textContent='-'; };
+$('#swap').onclick = () => {
+  const a = $('#out').textContent; $('#src').value = a; $('#out').textContent = '';
+  const cur = $('#lang').value;
+  const inv = {ja2zh:'zh2ja', zh2ja:'ja2zh', en2zh:'zh2en', zh2en:'en2zh'}[cur] || 'ja2zh';
+  if(langs[inv]) $('#lang').value = inv;
+};
+health(); setInterval(health, 20000);
+</script>
+</body>
+</html>
