@@ -1,22 +1,26 @@
-# 本地翻译 LocalTranslate
+# 本地翻译
 
-用**你自己 PC 上的本地模型**（Ollama + qwen2.5）做翻译：**免费、离线、隐私安全** ✓
+用本机的 Ollama（qwen2.5）做翻译。不联网、不花钱，内容不出本机。
 
----
+这个目录里有两块东西：一块是调用本地模型的笔记，一块是具体工具——网页、命令行、
+字幕、图片、浏览器扩展。下面按这两块写。
 
-# 第一部分：怎么调用模型（3 种方式，从易到难）
+## 一、怎么调用本地模型
 
-## 方式 1：命令行直接聊（最快验证）
+Ollama 装在本机，监听 11434。有三种调用方式，从简单到实用。
+
+### 1. 命令行直接聊
 
 ```powershell
-ollama run qwen2.5:3b            # 快（89 tok/s）
-ollama run qwen2.5:7b            # 准（31 tok/s）
-# 退出：/bye    查看已加载：ollama ps    看模型清单：ollama list
+ollama run qwen2.5:3b     # 快，89 tok/s
+ollama run qwen2.5:7b     # 准，31 tok/s
+
+# /bye 退出；ollama ps 看当前加载的模型；ollama list 看装了哪些
 ```
 
-## 方式 2：原生 HTTP API
+### 2. 原生 HTTP 接口
 
-```http
+```
 POST http://127.0.0.1:11434/api/generate
 Content-Type: application/json
 
@@ -27,18 +31,22 @@ Content-Type: application/json
   "options": { "temperature": 0.2, "num_ctx": 4096, "num_predict": 512 }
 }
 ```
-返回：`{"response":"...", "eval_count":18, "eval_duration":...}`（tok/s = eval_count / eval_duration×1e9 ✓）
 
-**多轮对话**用 `/api/chat`，把 `prompt` 换成 `messages`：
+返回里有 `response` 和 `eval_count`、`eval_duration`，两者相除就是生成速度。
+
+多轮对话改用 `/api/chat`，把 `prompt` 换成 `messages`：
+
 ```json
 {"model":"qwen2.5:3b","messages":[{"role":"system","content":"你是翻译引擎"},{"role":"user","content":"..."}],"stream":false}
 ```
 
-## 方式 3：OpenAI 兼容接口 ⭐ 最实用
+### 3. OpenAI 兼容接口
 
-```http
+最实用的一种，因为任何支持「自定义 OpenAI 接口」的软件都能直接接上。
+
+```
 POST http://127.0.0.1:11434/v1/chat/completions
-Authorization: Bearer anything          ← 随便填，Ollama 不校验
+Authorization: Bearer anything          # 随便填，Ollama 不校验
 Content-Type: application/json
 
 {
@@ -51,15 +59,19 @@ Content-Type: application/json
 }
 ```
 
-**这意味着**：任何支持"自定义 OpenAI 接口"的软件都能直接接你的本地模型 ✓
-```
-接口地址(Base URL) : http://127.0.0.1:11434/v1
-API Key           : 随便填（如 local）
-模型名            : qwen2.5:3b  或  qwen2.5:7b
-```
-可接的：Cherry Studio / ChatBox / 沉浸式翻译 / VS Code 插件 / DSH / 各种客户端 ✓
+在客户端里填的时候：
 
-## 代码示例（Python，零第三方依赖）
+```
+接口地址  http://127.0.0.1:11434/v1
+API Key   随便填，比如 local
+模型名    qwen2.5:3b 或 qwen2.5:7b
+```
+
+Cherry Studio、ChatBox、沉浸式翻译、VS Code 插件、DSH 这些都能接。
+
+### Python 调用示例
+
+零第三方依赖，只用标准库：
 
 ```python
 import json, urllib.request
@@ -82,75 +94,162 @@ def translate(text, model="qwen2.5:3b"):
 print(translate("今日はいい天気ですね。散歩でも行きましょうか。"))
 ```
 
-## 流式输出（边生成边显示）
+### 流式输出
 
-把 `"stream": true` → 服务端返回 **每行一个 JSON**（NDJSON ✓），逐行读、取 `message.content` 拼接即可 ✓
-本项目的 `server.py` 就是这么转发给你浏览器的 ✓
+把 `"stream": true`，服务端会返回一行一个 JSON，逐行读、把 `message.content`
+拼起来就是完整译文。本项目的 `server.py` 就是这么转发到浏览器的。
 
-## 常用参数（`options` 里）
+### 常用参数
 
-| 参数 | 作用 | 翻译场景建议 |
-|---|---|---|
-| `temperature` | 随机性 | **0.1 ~ 0.3**（翻译要稳定 ✓）|
-| `num_ctx` | 上下文长度 | 短文 2048；长文/字幕 8192（**越大越吃显存** ✗）|
-| `num_predict` | 最多生成多少 token | 512 起步；整篇翻译给 2048+ |
+放在 `options` 里。
+
+| 参数 | 作用 | 翻译场景的建议 |
+| --- | --- | --- |
+| `temperature` | 随机性 | 0.1 到 0.3，翻译要稳定 |
+| `num_ctx` | 上下文长度 | 短文 2048，长文或字幕 8192，调大会吃显存 |
+| `num_predict` | 最多生成多少 token | 512 起步，整篇翻译给到 2048 以上 |
 | `top_p` | 采样范围 | 0.9 |
-| `keep_alive` | 模型驻留时长 | `"24h"`（避免每次等加载 ✓ 已在环境变量设过 ✓）|
+| `keep_alive` | 模型驻留时长 | 设成 `"24h"`，免得每次都等加载。已经在环境变量里设过了 |
 
-## 性能须知（你的机器实测）
+一个容易踩的坑：最初的提示词把指令和原文放在同一条 user 消息里，模型经常把原文
+原样吐回来。后来改成 system 写清角色、user 里用明确句式「把下面这句翻译成中文：」，
+才稳定下来。
 
-```
-qwen2.5:3b  1.9G  89 tok/s   ← 翻译首选（快且够用 ✓）
-qwen2.5:7b  4.7G  31 tok/s   ← 长句/文学性文本更准
-6G 显存同时只驻留一个模型 ✓（切换时自动换入换出，约 4~7 秒 ✓）
-```
+## 二、这套工具怎么用
 
----
-
-# 第二部分：这个项目怎么用
-
-## 启动
+### 启动
 
 ```powershell
-双击  启动.bat
-# 或
+双击 启动.bat
+# 或者
 python D:\DSH\local-translate\server.py
 ```
-然后浏览器打开 **http://127.0.0.1:18765** ✓
 
-## 三个入口
+然后浏览器打开 `http://127.0.0.1:18765`。
+
+### 四个入口
 
 | 入口 | 用途 |
-|---|---|
-| **网页** `http://127.0.0.1:18765` | 粘贴文本 → 实时流式翻译；可切日→中 / 中→日 / 英→中 |
-| **命令行** `python cli.py "文本"` | 快速翻译；`--clip` 读剪贴板；`-f 文件.srt` 翻译字幕（**保留时间轴** ✓）|
-| **API** `POST /translate` | 给别的程序调用（返回 SSE 流）|
-| **API** `POST /v1/chat/completions` | OpenAI 兼容（可被任何软件当"自定义接口"接入 ✓）|
+| --- | --- |
+| 网页 `http://127.0.0.1:18765` | 粘贴文本，流式翻译，日→中 / 中→日 / 英→中 |
+| 命令行 `python cli.py "文本"` | 快速翻译，`--clip` 读剪贴板，`-f 文件.srt` 翻字幕并保留时间轴 |
+| `POST /translate` | 给别的程序调用，返回 SSE 流 |
+| `POST /v1/chat/completions` | OpenAI 兼容，能被任何软件当自定义接口接进来 |
 
-## 命令行例子
+### 命令行例子
 
 ```powershell
-python cli.py "今日はいい天気ですね"                 # 日译中
-python cli.py --to ja "今天天气真好"                  # 中译日
-python cli.py --clip                                 # 翻译剪贴板内容（并写回）
-python cli.py -f 番剧.srt --out 番剧.cn.srt           # 字幕整篇翻译，时间轴不变
-python cli.py -f 番剧.srt --model qwen2.5:7b          # 换更准的模型
+python cli.py "今日はいい天気ですね"              # 日译中
+python cli.py --to ja "今天天气真好"               # 中译日
+python cli.py --clip                              # 翻剪贴板并写回
+python cli.py -f 番剧.srt --out 番剧.cn.srt        # 字幕整篇翻译，时间轴不变
+python cli.py -f 番剧.ass --template novel        # 换风格模板
 ```
+
+### 翻译风格
+
+`config.json` 里定义了六套提示词，命令行用 `--template` 选，网页和扩展里是下拉框：
+
+- `auto` 通用
+- `subtitle` 字幕，逐行对应、口语化
+- `news` 新闻，书面语
+- `novel` 轻小说，保留语气
+- `tech` 技术文档，术语一致、代码不翻
+- `casual` 口语
+
+同一个句子换模板出来的差别挺明显，比如「明日の会議は午後三時からです」，
+通用模板是「明天的会议是下午三点开始」，口语模板会变成「明天的会议下午三点开始」。
+
+### 视频和音频
+
+把文件拖到 `视频转双语字幕.bat` 上，或者：
+
+```powershell
+python video-to-subtitle.py 视频.mp4 --lang ja --mt fast
+```
+
+流程是 ffmpeg 抽 16 kHz 单声道音频，whisper.cpp 识别出带时间轴的日文字幕，
+再逐条翻译，最后写出中日双语的 srt。
+
+whisper 有两种用法：命令行模式每次都要重新加载模型（1.5 GB，二十多秒），
+所以另外起了一个常驻服务 `whisper-server.exe`（端口 8178），模型一直放在显存里。
+实测同一条音频，端到端从 28 秒降到 2.6 秒，而且 `/inference` 接口直接返回逐句的
+SRT，时间轴比命令行模式精确得多。`启动字幕引擎.bat` 负责起这个服务，
+拖拽的脚本会自动检查并拉起。
+
+显存只有 6 GB，whisper 常驻占 1.5 GB 左右。翻译用 3b 模型（2 GB）比较宽裕，
+用 7b（4.7 GB）就会互相挤，能跑但会慢。
+
+### 图片和漫画
+
+```powershell
+python image-translate.py 漫画.png --mode both
+```
+
+用 manga-ocr 识别日文，再翻译，然后把中文贴回原图对应的位置，输出 `_zh.png`，
+同时给一份 `_zh.txt` 对照。
+
+做的时候有两个发现。一是 manga-ocr 只返回文本、不给坐标，所以没法直接知道每段文字
+在图上的位置；办法是自己按暗像素做行投影切出文本行，位置就已知了。二是把一行裁成
+又宽又扁的条状图之后，识别率反而下降，后来在裁剪时加垂直留白并放大两倍才恢复。
+平均行高小于 44 像素时，整张图也先放大两倍再识别。
+
+效果上，清晰的大字基本一字不差；三十像素左右的细体小字错误较多。真实漫画的对白
+通常更大更粗，应该比合成的测试图好。
+
+### 浏览器
+
+两个版本，功能略有差别：
+
+- 油猴脚本 `userscript/本地双语翻译.user.js`，功能全，快捷键和主题都能自定义，
+  还能导出 Anki
+- 扩展 `extension/`，是油猴脚本的重写版，功能少一些，但不依赖 Tampermonkey
+
+扩展版的网络请求走后台 service worker，因为内容脚本在 HTTPS 页面里请求
+`http://127.0.0.1` 会被混合内容策略拦掉。
+
+### 翻译历史
+
+服务每次翻译都会往 `history.jsonl` 追加一条，去重后可以导出成 Anki 能导入的 TSV：
+
+```
+http://127.0.0.1:18765/history?limit=20
+http://127.0.0.1:18765/export/anki.tsv
+```
+
+这个文件不入库，里面有你自己翻过的东西。
 
 ## 文件结构
 
 ```
 local-translate/
-├─ README.md          ← 本文（调用模型教程 + 使用说明）
-├─ config.json        ← 模型 / 端口 / 语言 / 提示词
-├─ server.py          ← 本地服务（网页 + 翻译 API + OpenAI 兼容）
-├─ cli.py             ← 命令行工具（含字幕翻译、剪贴板）
-├─ web/index.html     ← 网页界面（流式显示，零依赖）
-└─ 启动.bat           ← 一键启动并打开浏览器
+├─ config.json            模型、端口、语言对、提示词模板
+├─ server.py              本地服务：网页 + 翻译 API + OpenAI 兼容 + 历史 + 导出
+├─ cli.py                 命令行：文本、剪贴板、字幕（srt / vtt / ass）
+├─ video-to-subtitle.py   视频音频转双语字幕（ffmpeg + whisper + 翻译）
+├─ image-translate.py     图片漫画翻译并回贴
+├─ web/index.html         网页界面，流式显示，零依赖
+├─ web/install.html       油猴脚本安装引导
+├─ userscript/            油猴脚本
+├─ extension/             浏览器扩展（Manifest V3）
+├─ history.jsonl          翻译历史，不入库
+├─ 启动.bat               起服务并打开浏览器
+├─ 启动字幕引擎.bat        起 whisper 常驻服务
+├─ 视频转双语字幕.bat       拖视频进来
+├─ 文档翻译.bat            拖字幕或文档进来
+└─ 图片翻译.bat            拖图片或文件夹进来
 ```
 
-## 下一步（待做）
+## 性能（本机实测）
 
-- 浏览器油猴脚本：日文网页 → **中日双语对照** ✓
-- 剪贴板监听模式：复制即译（常驻托盘）✓
-- （可选）接 DoH/代理，让"翻译+查词"直接用上你服务器的 AdGuard ✓
+```
+qwen2.5:3b   1.9 GB   89 tok/s    翻译首选，快且够用
+qwen2.5:7b   4.7 GB   31 tok/s    长句和文学性文本更准
+显存 6 GB，同时只驻留一个模型，切换时自动换入换出，大约四到七秒
+```
+
+## 还没做的
+
+- 图片翻译对三十像素以下的细体字识别率偏低
+- 扩展版还没有快捷键自定义、主题手动切换和尺寸调节
+- 文档翻译目前支持 srt / vtt / ass / txt / md，PDF 和 EPUB 还没做
