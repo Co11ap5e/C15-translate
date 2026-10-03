@@ -1,0 +1,15 @@
+# 界面（Windows 上靠 pythonnet 调 .NET 的 WinForms，需要在装 .NET Framework 4.x 的机器上跑）
+pywebview>=6.0
+pythonnet>=3.0
+
+# 托盘图标
+pystray>=0.19
+Pillow>=10.0
+
+# 实时字幕取系统声音（WASAPI 回环）
+soundcard>=0.4
+numpy>=1.24
+
+# 图片翻译用 manga-ocr，装上会顺带拉 2.5 GB 的 torch，
+# 不用那一页就别装。
+# manga-ocr

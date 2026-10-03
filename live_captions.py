@@ -48,6 +48,8 @@ class LiveCaptions:
         self.chunk = 2.5   # 兼容旧参数，实际由静音切分决定
         self.model = "fast"
         self.template = "subtitle"
+        self.to_lang = "auto"   # auto / ja2zh / en2zh / zh2ja / zh2en / off
+        self.sil = 0.45         # 多久的停顿算一句话说完
         self.stats = {"chunks": 0, "skipped": 0, "chars": 0}
         self.on_line = on_line
         self._stop = False
@@ -68,14 +70,20 @@ class LiveCaptions:
             return {"default": "", "loopbacks": [], "error": str(e)[:150]}
 
     # ── 控制 ──
-    def start(self, device=None, lang="auto", chunk=2.5, model="fast", template="subtitle"):
+    def start(self, device=None, lang="auto", model="fast",
+              to_lang="auto", sil=0.45, template="subtitle"):
         if self.state == "running":
             return {"ok": True, "msg": "已经在跑了"}
         self.device = device or ""
         self.lang = lang or "auto"
-        self.chunk = float(chunk or 2.5)
         self.model = model or "fast"
         self.template = template or "subtitle"
+        self.to_lang = to_lang or "auto"
+        try:
+            self.sil = min(2.0, max(0.2, float(sil)))
+        except Exception:
+            self.sil = 0.45
+        self.chunk = self.sil   # 旧字段留着，别的地方还在读
         self.error = ""
         self.lines = []
         self.stats = {"chunks": 0, "skipped": 0, "chars": 0}
@@ -104,7 +112,43 @@ class LiveCaptions:
         with self._lock:
             return {"state": self.state, "error": self.error,
                     "lines": self.lines[-n:], "stats": dict(self.stats),
-                    "device": self.device, "lang": self.lang, "chunk": self.chunk}
+                    "device": self.device, "lang": self.lang, "chunk": self.chunk,
+                    "to_lang": self.to_lang, "sil": self.sil,
+                    "total": len(self.lines)}
+
+    def transcript(self, with_src=True):
+        """把这一场看下来的字幕拼成文本，交给总结用。
+
+        只保留有内容的行；带原文的话一行中文一行原文，方便模型对上下文。
+        """
+        with self._lock:
+            lines = list(self.lines)
+        out = []
+        for ln in lines:
+            zh = (ln.get("zh") or "").strip()
+            ja = (ln.get("ja") or "").strip()
+            if not zh and not ja:
+                continue
+            ts = ln.get("ts") or ""
+            if with_src and ja and zh and zh != ja:
+                out.append("[%s] %s\n%s" % (ts, zh, ja))
+            else:
+                out.append("[%s] %s" % (ts, zh or ja))
+        return "\n".join(out)
+
+    def clear(self):
+        with self._lock:
+            self.lines = []
+            self.stats = {"chunks": 0, "skipped": 0, "chars": 0}
+        return {"ok": True}
+
+    def save_transcript(self, path):
+        text = self.transcript(with_src=False)
+        if not text.strip():
+            return {"ok": False, "msg": "还没有内容"}
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text + "\n")
+        return {"ok": True, "path": path, "chars": len(text)}
 
     # ── 主循环 ──
     def _loop(self):
@@ -127,7 +171,7 @@ class LiveCaptions:
 
         # 按静音切句：一句话说完（静音够久）才提交，不再固定切 2.5 秒把句子切断
         block = int(sr * 0.25)            # 每次读 0.25 秒
-        sil_need = max(2, int(0.45 / 0.25))   # 连续 0.45 秒静音 = 一句结束
+        sil_need = max(2, int(round(self.sil / 0.25)))   # 连续这么久静音 = 一句结束
         min_speech = int(sr * 0.45)       # 短于这个不算一句
         max_len = int(sr * 12)            # 超过 12 秒强制提交，免得一直等
         buf = np.zeros(0, dtype="float32")
@@ -168,8 +212,8 @@ class LiveCaptions:
                     with self._lock:
                         self.lines.append({"ja": text, "zh": zh,
                                            "ts": time.strftime("%H:%M:%S")})
-                        if len(self.lines) > 200:
-                            self.lines = self.lines[-200:]
+                        if len(self.lines) > 2000:
+                            self.lines = self.lines[-2000:]
                     self.stats["chars"] += len(text)
                     if self.on_line:
                         try:
@@ -210,9 +254,19 @@ class LiveCaptions:
         except Exception:
             return ""
 
+    def _target_lang(self):
+        """把界面上的选择换算成翻译服务认的语言对。"""
+        to = self.to_lang or "auto"
+        if to != "auto":
+            return to
+        return {"ja": "ja2zh", "en": "en2zh", "zh": "zh2ja", "ko": "ja2zh"}.get(self.lang, "auto2zh")
+
     def _translate(self, text):
         import json
-        body = json.dumps({"text": text, "lang": "ja2zh", "model": self.model,
+        to = self._target_lang()
+        if to == "off":
+            return ""
+        body = json.dumps({"text": text, "lang": to, "model": self.model,
                            "template": self.template, "stream": False}).encode()
         req = urllib.request.Request(TRANSLATE_URL, data=body,
                                      headers={"Content-Type": "application/json"})

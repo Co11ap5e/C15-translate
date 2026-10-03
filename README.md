@@ -127,6 +127,56 @@ python D:\DSH\local-translate\server.py
 
 然后浏览器打开 `http://127.0.0.1:18765`。
 
+### 桌面版
+
+上面那些是散着的脚本，日常用的是一个窗口把它们收在一起：
+
+```powershell
+双击 本地翻译.exe        # 打包出来的启动器
+# 或者
+双击 打开翻译软件.bat
+# 或者
+python app.py
+```
+
+窗口里分七页：文本、视频字幕、文档、图片、实时字幕、总结、设置。文本页就是网页版
+那一套；视频字幕、文档、图片是三件套的图形入口，选文件、看进度、完事打开输出目录；
+设置页能看本地服务状态、翻译历史和模型列表。
+
+**实时字幕**是为了看没有字幕的生肉。它从系统声音里取音频（WASAPI 回环，不是麦克风），
+所以用哪个播放器都行，识别到一句话（停顿够久）才提交，不会把句子切一半。页面上能选：
+
+- 声音来源：默认扬声器，多个声卡时可以指定
+- 原声语言：日语 / 英语 / 中文 / 韩语 / 自动。日语片子直接选日语，比自动判断准
+- 译文：跟着原声走（自动翻成中文）、指定某个方向、或者不翻译只看原文
+- 翻译模型：3b 快，7b 稳
+- 断句：停顿多久算一句，灵敏 0.3 秒、标准 0.45 秒、稳一点 0.7 秒
+
+字幕显示在一个独立的置顶窗口里，无边框、可以拖到视频画面上方。整个窗口都能拖，
+高度跟着字幕行数自己变，不会在下面留一块空白的可拖区域。位置记在 `overlay_pos.json`。
+
+**总结**默认总结的就是这次实时字幕攒下来的台词，看完整集点一下就能出剧情梗概、
+要点、人物或时间线，不用另外导出字幕。也可以选文件（srt、vtt、ass、txt、md）
+或者直接粘贴文本。内容长的时候先分段各总结一遍再合并，所以整季字幕也吃得下。
+
+### 打包
+
+```powershell
+python -m PyInstaller --noconfirm 本地翻译.spec      # 出 dist\本地翻译\
+python -m PyInstaller --noconfirm --onefile --noconsole --name 本地翻译 launcher.py
+```
+
+`本地翻译.exe` 这个启动器只有几兆，它找到本机的 Python 再跑 `app.py`。为什么界面
+本身不冻进 exe：pywebview 在 Windows 上靠 pythonnet 调 .NET 的 WinForms，而
+pythonnet 在 PyInstaller 冻出来的进程里加载不了随包的 `Python.Runtime.dll`，
+clr_loader 会报解析不到 `Python.Runtime.Loader.Initialize`；换成 CoreCLR 倒是能加载，
+但 pywebview 带的 WebView2 控件是给 .NET Framework 编的，.NET 8 里没有
+`System.Windows.Forms.ContextMenu`，一样起不来。两条路都试过，都走不通，所以 exe
+退回到只做启动。源码版不需要装 .NET，也不用管这些。
+
+`desktop.runtimeconfig.json`、`runtime_hook_clr.py`、两个 spec 文件都留在仓库里，
+哪天 pythonnet 修好了可以直接接着用。
+
 ### 四个入口
 
 | 入口 | 用途 |

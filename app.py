@@ -23,7 +23,23 @@ try:
 except Exception:
     pass
 
-import webview
+try:
+    import webview
+except Exception as _e:      # 打包版要 .NET 桌面运行时，缺了就说明白
+    if getattr(sys, "frozen", False):
+        try:
+            import ctypes
+
+            ctypes.windll.user32.MessageBoxW(
+                None,
+                "启动失败：这套界面需要 .NET 桌面运行时 8（Microsoft.WindowsDesktop.App）。\n\n"
+                "装上它再打开；或者先用「打开翻译软件.bat」跑源码版，源码版不需要这个。\n\n"
+                "详细信息：%s" % str(_e)[:300],
+                "本地翻译", 0x10,
+            )
+        except Exception:
+            pass
+    raise
 import pystray
 from PIL import Image, ImageDraw
 
@@ -193,12 +209,27 @@ class Api:
         except Exception as e:
             return {"ok": False, "msg": str(e)[:120]}
 
+    # 总结实时字幕攒下来的内容（看过的那一集）
+    def sum_live(self, mode="plot", fast=False):
+        text = _live.transcript()
+        if len(text.strip()) < 30:
+            return {"ok": False, "msg": "实时字幕还没攒到内容，先看一段再总结"}
+        return self.sum_run(mode, None, text, fast)
+
+    def live_transcript(self):
+        text = _live.transcript()
+        return {"ok": True, "text": text, "chars": len(text), "lines": len(_live.lines)}
+
+    def live_clear(self):
+        return _live.clear()
+
     # ── 实时字幕 ──
     def live_devices(self):
         return _live.devices()
 
-    def live_start(self, device=None, lang="auto", chunk=2.5, model="fast", template="subtitle"):
-        r = _live.start(device, lang, chunk, model, template)
+    def live_start(self, device=None, lang="auto", model="fast",
+                   to_lang="auto", sil=0.45, template="subtitle"):
+        r = _live.start(device, lang, model, to_lang, sil, template)
         self.overlay_show()
         return r
 

@@ -1,5 +1,7 @@
-# ???? / ????
+# 测试和临时文件
 _test/
+tmp*/
+overlay_pos.json
 history.jsonl
 *.log
 __pycache__/
@@ -10,19 +12,27 @@ _server.err
 dash.out
 dash.err
 
-# ??????????????
+# 打包产物（用 spec 或 launcher.py 重新生成）
+build/
+dist/
+build_launcher/
+dist_launcher/
+启动器/
+本地翻译.exe
+_dbg.*
+
+# whisper 的模型和压缩包太大，不入库
 D:/DSH/tools/whisper/
 D:/DSH/tools/*.zip
-# ????
+
+# 密钥
 .local-secrets.json
 *secrets*.json
 
-
-# PowerShell ?????????????
+# PowerShell 脚本只在本机用
 *.ps1
 
-
-# ?????
+# 运行时的输出和 pid
 _app.*
 .app-pid
 _server.*

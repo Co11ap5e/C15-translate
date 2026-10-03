@@ -2,9 +2,17 @@
 from PyInstaller.utils.hooks import collect_submodules
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('D:/DSH/local-translate/web', 'web'), ('D:/DSH/local-translate/config.json', '.'), ('D:/DSH/local-translate/server.py', '.'), ('D:/DSH/local-translate/cli.py', '.'), ('D:/DSH/local-translate/video-to-subtitle.py', '.'), ('D:/DSH/local-translate/image-translate.py', '.'), ('D:/DSH/local-translate/live_captions.py', '.'), ('D:/DSH/local-translate/summarize.py', '.')]
+datas = [('D:/DSH/local-translate/web', 'web'), ('D:/DSH/local-translate/config.json', '.'), ('D:/DSH/local-translate/server.py', '.'), ('D:/DSH/local-translate/cli.py', '.'), ('D:/DSH/local-translate/video-to-subtitle.py', '.'), ('D:/DSH/local-translate/image-translate.py', '.'), ('D:/DSH/local-translate/live_captions.py', '.'), ('D:/DSH/local-translate/summarize.py', '.'), ('D:/DSH/local-translate/desktop.runtimeconfig.json', '.')]
+
+# pywebview 的原生 WebView2Loader.dll 在 webview/lib 里，官方 hook 没收集，得自己带上
+import importlib.util as _ilu
+import os as _os
+
+_wv = _ilu.find_spec('webview')
+if _wv and _wv.origin:
+    datas += [(_os.path.join(_os.path.dirname(_wv.origin), 'lib'), 'webview/lib')]
 binaries = []
-hiddenimports = ['pystray._win32', 'webview.platforms.winforms']
+hiddenimports = ['pystray._win32', 'webview.platforms.winforms', 'clr', 'pythonnet']
 hiddenimports += collect_submodules('soundcard')
 tmp_ret = collect_all('pythonnet')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
@@ -20,7 +28,7 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['D:/DSH/local-translate/runtime_hook_clr.py'],
     excludes=['torch', 'manga_ocr', 'transformers', 'matplotlib', 'scipy', 'pandas'],
     noarchive=False,
     optimize=0,
@@ -32,7 +40,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='翻译调试版',
+    name='dbg',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -51,5 +59,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='翻译调试版',
+    name='dbg',
 )

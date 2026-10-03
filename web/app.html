@@ -157,28 +157,44 @@
         <select id="live-dev" style="flex:1;min-width:260px"></select>
       </div>
       <div class="row">
-        <label>语言</label>
+        <label>原声语言</label>
         <select id="live-lang">
           <option value="auto">自动判断</option>
-          <option value="ja">日语</option>
+          <option value="ja" selected>日语</option>
           <option value="en">英语</option>
+          <option value="zh">中文</option>
+          <option value="ko">韩语</option>
         </select>
-        <label>切块</label>
-        <select id="live-chunk">
-          <option value="2">2 秒（跟得紧）</option>
-          <option value="2.5" selected>2.5 秒</option>
-          <option value="4">4 秒（更准）</option>
+        <label>译文</label>
+        <select id="live-to">
+          <option value="auto" selected>跟着原声走（自动翻成中文）</option>
+          <option value="ja2zh">日语 → 中文</option>
+          <option value="en2zh">英语 → 中文</option>
+          <option value="zh2ja">中文 → 日语</option>
+          <option value="zh2en">中文 → 英语</option>
+          <option value="off">不翻译，只看原文</option>
         </select>
-        <label>翻译</label>
+        <label>翻译模型</label>
         <select id="live-mdl"></select>
+      </div>
+      <div class="row">
+        <label>断句</label>
+        <select id="live-sil">
+          <option value="0.3">灵敏（停顿 0.3 秒就断）</option>
+          <option value="0.45" selected>标准（0.45 秒）</option>
+          <option value="0.7">稳一点（0.7 秒，句子更完整）</option>
+        </select>
       </div>
       <div class="row">
         <button class="pri" id="live-go">开始</button>
         <button class="gh" id="live-stop">停止</button>
         <button class="gh" id="live-overlay">显示字幕窗</button>
         <button class="gh" id="live-overlay-hide">隐藏字幕窗</button>
+        <button class="gh" id="live-sum">总结这次看的</button>
       </div>
       <p class="hint">从系统声音里取音频，不是麦克风，所以视频用哪个播放器都行。
+        识别到一句话（停顿够久）才提交，不会把句子切一半。原声语言选错了识别会乱，
+        日语片子就选日语，比自动判断准。译文选「不翻译」就只显示原文。
         字幕会显示在一个独立的置顶窗口里，可以拖到视频画面上方。开始之前不用手动加载模型，
         第一次识别会花十几秒，之后就快了。</p>
       <pre id="live-log">未开始…</pre>
@@ -199,6 +215,16 @@
         </select>
       </div>
       <div class="row">
+        <label>总结什么</label>
+        <select id="sum-src">
+          <option value="live" selected>实时字幕（刚看的那一集）</option>
+          <option value="file">字幕或文档文件</option>
+          <option value="paste">下面粘贴的文本</option>
+        </select>
+        <button class="gh" id="sum-live-info">看攒了多少</button>
+        <button class="gh" id="sum-live-clear">清空记录</button>
+      </div>
+      <div class="row">
         <button class="gh" id="sum-pick">选择字幕或文档</button>
         <div class="path" id="sum-path">还没有选择文件</div>
       </div>
@@ -206,8 +232,9 @@
         <button class="pri" id="sum-go">开始总结</button>
         <span class="hint" id="sum-note"></span>
       </div>
-      <p class="hint">支持 srt、vtt、ass 字幕和 txt、md 文本。字幕会先去掉时间轴再交给模型。
-        内容太长时先分段各总结一遍，再合并成一份，所以很长的字幕也能处理。</p>
+      <p class="hint">看生肉的时候，实时字幕识别出来的台词会自动攒着，点「开始总结」就是对这一集做总结，
+        不用另外导出字幕。也可以选文件（srt、vtt、ass、txt、md）或者直接粘贴文本。
+        字幕会先去掉时间轴再交给模型；内容太长时先分段各总结一遍，再合并成一份。</p>
       <textarea id="sum-paste" placeholder="也可以直接在这里粘贴文本（和上面选文件二选一）" style="min-height:90px"></textarea>
       <div class="card" style="margin:12px 0 0"><h2>结果</h2>
         <div class="out" id="sum-out" style="font-size:13.5px"></div>
@@ -262,7 +289,7 @@ async function boot(){
   fill('lang', cfg.langs, 'ja2zh');
   fill('tpl1', cfg.templates, 'subtitle');
   fill('tpl2', cfg.templates, 'subtitle');
-  ['mdl1','mdl2','mdl3','mdl4'].forEach(id => fill(id, cfg.models, 'fast'));
+  ['mdl1','mdl2','mdl3','mdl4','live-mdl'].forEach(id => fill(id, cfg.models, 'fast'));
   const ml = $('#model-list');
   if(ml) ml.innerHTML = Object.entries(cfg.models).map(([k,v]) => `<div>${k} → ${v}</div>`).join('') || '没读到模型配置';
   const st = $('#t-stat');
@@ -418,7 +445,8 @@ $('#live-go').onclick = async () => {
   if(!api) return;
   $('#live-log').textContent = '正在启动…';
   const r = await api.live_start($('#live-dev').value, $('#live-lang').value,
-                                 parseFloat($('#live-chunk').value), $('#live-mdl').value);
+                                 $('#live-mdl').value, $('#live-to').value,
+                                 parseFloat($('#live-sil').value));
   if(!r.ok) { $('#live-log').textContent = r.msg || '启动失败'; return; }
   if(liveTimer) clearInterval(liveTimer);
   liveTimer = setInterval(async () => {
@@ -466,15 +494,26 @@ $('#sum-pick').onclick = async () => {
     $('#sum-note').textContent = r.msg;
   }
 };
-$('#sum-go').onclick = async () => {
+async function runSum(){
   if(!api) return;
+  const src = $('#sum-src').value;
   const pasted = $('#sum-paste').value.trim();
-  if(!sumPath && !pasted){ $('#sum-note').textContent = '先选文件或粘贴文本'; return; }
+  const mode = $('#sum-mode').value;
+  const fast = $('#sum-fast').value === '1';
+  let call = null;
+  if(src === 'live'){
+    call = api.sum_live(mode, fast);
+  } else if(src === 'file'){
+    if(!sumPath){ $('#sum-note').textContent = '先选一个文件'; return; }
+    call = api.sum_run(mode, sumPath, null, fast);
+  } else {
+    if(!pasted){ $('#sum-note').textContent = '下面还没有粘贴文本'; return; }
+    call = api.sum_run(mode, null, pasted, fast);
+  }
   $('#sum-out').textContent = '';
   $('#sum-save').disabled = true;
   $('#sum-note').textContent = '提交中…';
-  const r = await api.sum_run($('#sum-mode').value, pasted ? null : sumPath, pasted || null,
-                              $('#sum-fast').value === '1');
+  const r = await call;
   if(!r.ok){ $('#sum-note').textContent = r.msg || '失败'; return; }
   if(sumTimer) clearInterval(sumTimer);
   sumTimer = setInterval(async () => {
@@ -489,6 +528,25 @@ $('#sum-go').onclick = async () => {
       $('#sum-note').textContent = '失败：' + (s.err || '');
     }
   }, 1200);
+}
+$('#sum-go').onclick = runSum;
+
+$('#sum-live-info').onclick = async () => {
+  if(!api) return;
+  const t = await api.live_transcript();
+  $('#sum-note').textContent = t.lines
+    ? `实时字幕攒了 ${t.lines} 句，共 ${t.chars} 字`
+    : '实时字幕还没有内容，先去「实时字幕」页点开始';
+};
+$('#sum-live-clear').onclick = async () => {
+  if(!api) return;
+  await api.live_clear();
+  $('#sum-note').textContent = '已清空实时字幕记录';
+};
+$('#live-sum').onclick = () => {
+  const b = document.querySelector('nav button[data-p="sum"]');
+  if(b) b.click();
+  runSum();
 };
 $('#sum-save').onclick = async () => {
   const r = await api.sum_save($('#sum-out').textContent);
