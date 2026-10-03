@@ -12,6 +12,7 @@
 单独用一个模块，是因为 app.py 里塞太多东西会不好读。
 """
 import os
+import queue
 import re
 import subprocess
 import sys
@@ -19,6 +20,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 import wave
 from io import BytesIO
 
@@ -90,8 +92,11 @@ class LiveCaptions:
         self.stats = {"chunks": 0, "skipped": 0, "chars": 0}
         self._stop = False
         self.state = "running"
+        self._q = queue.Queue(maxsize=8)
+        self._pool = ThreadPoolExecutor(max_workers=3)   # 每段里的短句并行翻译
         self._th = threading.Thread(target=self._loop, daemon=True)
         self._th.start()
+        threading.Thread(target=self._consume, daemon=True).start()
         threading.Thread(target=self._warmup, daemon=True).start()
         return {"ok": True}
 
@@ -107,6 +112,10 @@ class LiveCaptions:
     def stop(self):
         self._stop = True
         self.state = "idle"
+        try:
+            self._pool.shutdown(wait=False)
+        except Exception:
+            pass
         return {"ok": True}
 
     def status(self, n=8):
@@ -202,23 +211,48 @@ class LiveCaptions:
                         continue
 
                     self.stats["chunks"] += 1
-                    text = self._transcribe(self._to_wav(seg, sr), self.lang)
-                    if not text:
-                        continue
-                    if self.lines and self.lines[-1]["ja"] == text:
-                        continue
-                    if any(j in text for j in JUNK):
-                        continue
-                    # 长句拆几段分别翻译：第一段翻完就先上屏，不用等整段翻完
-                    parts = self._split_parts(text)
-                    if len(parts) > 1:
-                        self.stats["split"] = self.stats.get("split", 0) + len(parts) - 1
-                    for part in parts:
-                        self._push(part, self._translate(part))
+                    # 只把音频塞进队列就回头继续录：识别和翻译慢也不会卡住录音
+                    try:
+                        self._q.put_nowait(self._to_wav(seg, sr))
+                    except queue.Full:
+                        self.stats["dropped"] = self.stats.get("dropped", 0) + 1
         except Exception as e:
             self.state, self.error = "error", str(e)[:160]
             return
         self.state = "idle"
+
+    def _consume(self):
+        """识别 + 翻译都在这条线程里发起；短句用线程池并行翻，按顺序上屏。"""
+        while not self._stop:
+            try:
+                wav = self._q.get(timeout=0.3)
+            except queue.Empty:
+                continue
+            try:
+                text = self._transcribe(wav, self.lang)
+                if not text:
+                    continue
+                if any(j in text for j in JUNK):
+                    continue
+                if self.lines and self.lines[-1]["ja"] == text:
+                    continue
+                parts = self._split_parts(text)
+                if len(parts) > 1:
+                    self.stats["split"] = self.stats.get("split", 0) + len(parts) - 1
+                futs = [self._pool.submit(self._translate, p) for p in parts]
+                for part, fut in zip(parts, futs):
+                    try:
+                        zh = fut.result()
+                    except Exception:
+                        zh = ""
+                    self._push(part, zh)
+            except Exception as e:
+                self.error = str(e)[:150]
+            finally:
+                try:
+                    self._q.task_done()
+                except Exception:
+                    pass
 
     # ── 工具 ──
     def _push(self, ja, zh):
@@ -235,7 +269,7 @@ class LiveCaptions:
                 pass
 
     @staticmethod
-    def _split_parts(text, limit=28, hard=45):
+    def _split_parts(text, limit=14, hard=20):
         """一次只翻一到两句，短句合并、长句拆开，图的是快。
 
         limit：合并后的目标长度（约一到两句）
