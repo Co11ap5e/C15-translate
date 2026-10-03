@@ -716,7 +716,12 @@ def main():
     _window.events.loaded += on_loaded
     _window.events.closing += on_closing
     threading.Thread(target=tray_thread, args=(api,), daemon=True).start()
-    webview.start(debug=False)
+    # 固定 WebView2 的数据目录，免得每次启动都在程序目录里新建一个 tmpXXXX
+    _store = os.path.join(WORK, "webview")
+    try:
+        webview.start(debug=False, private_mode=False, storage_path=_store)
+    except TypeError:
+        webview.start(debug=False)
 
 
 if __name__ == "__main__":

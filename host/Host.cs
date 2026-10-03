@@ -33,6 +33,16 @@ class Host
             rt + ";" + Path.Combine(rt, "DLLs") + ";" + Environment.GetEnvironmentVariable("PATH"));
         Directory.SetCurrentDirectory(here);
 
+        // 启动环境里可能没有 TEMP，Python/WebView2 就会在程序目录里乱建临时文件夹
+        string tmp = Environment.GetEnvironmentVariable("TEMP");
+        if (string.IsNullOrEmpty(tmp) || !Directory.Exists(tmp))
+        {
+            tmp = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LocalTranslate", "tmp");
+            Directory.CreateDirectory(tmp);
+            Environment.SetEnvironmentVariable("TEMP", tmp);
+            Environment.SetEnvironmentVariable("TMP", tmp);
+        }
+
         IntPtr mod = LoadLibraryW(dll);
         if (mod == IntPtr.Zero)
         {
