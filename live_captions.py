@@ -52,7 +52,7 @@ class LiveCaptions:
         self.model = "fast"
         self.template = "subtitle"
         self.to_lang = "auto"   # auto / ja2zh / en2zh / zh2ja / zh2en / off
-        self.sil = 0.45         # 多久的停顿算一句话说完
+        self.sil = 0.32         # 多久的停顿算一句话说完（默认调紧：出字更快）
         self.stats = {"chunks": 0, "skipped": 0, "chars": 0}
         self.on_line = on_line
         self._stop = False
@@ -183,7 +183,7 @@ class LiveCaptions:
         block = int(sr * 0.25)            # 每次读 0.25 秒
         sil_need = max(2, int(round(self.sil / 0.25)))   # 连续这么久静音 = 一句结束
         min_speech = int(sr * 0.45)       # 短于这个不算一句
-        max_len = int(sr * 4)             # 超过 4 秒强制提交：宁可多切几次，也不要等
+        max_len = int(sr * 2)             # 超过 2 秒强制提交：切得碎一点，字幕才跟得上
         buf = np.zeros(0, dtype="float32")
         sil = 0
         try:
