@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>本地翻译</title>
+<style>
+  :root{
+    --bg:#0d1117;--surface:#161b22;--subtle:#21262d;--ink:#e6edf3;--muted:#8b949e;
+    --line:#30363d;--accent:#3fb950;--accent2:#238636;--link:#58a6ff;--danger:#f85149;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);height:100vh;display:flex;flex-direction:column;
+    font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}
+  header{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);
+    background:var(--surface);flex:none}
+  .logo{width:24px;height:24px;border-radius:6px;background:var(--accent2);display:flex;align-items:center;
+    justify-content:center;font-weight:700;font-size:13px}
+  h1{font-size:15px;font-weight:600;margin:0;flex:1}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+  .dot.ok{background:var(--accent)}.dot.bad{background:var(--danger)}
+  nav{display:flex;gap:2px;padding:8px 16px 0;background:var(--surface);border-bottom:1px solid var(--line);flex:none}
+  nav button{background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);padding:8px 14px;
+    font:inherit;font-size:13.5px;cursor:pointer}
+  nav button:hover{color:var(--ink)}
+  nav button.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:600}
+  main{flex:1;overflow:auto;padding:18px 16px 24px}
+  .page{display:none}.page.on{display:block}
+  .row{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+  label{color:var(--muted);font-size:13px;min-width:52px}
+  select,input[type=text]{background:var(--subtle);border:1px solid var(--line);border-radius:6px;
+    color:var(--ink);padding:6px 9px;font:inherit;font-size:13px}
+  textarea{width:100%;min-height:150px;background:var(--subtle);border:1px solid var(--line);border-radius:6px;
+    color:var(--ink);padding:11px 12px;font:14px/1.7 inherit;resize:vertical}
+  button.pri{background:var(--accent2);border:1px solid rgba(240,246,252,.1);color:#fff;border-radius:6px;
+    padding:9px 18px;font:600 13.5px/1 inherit;cursor:pointer}
+  button.pri:hover{filter:brightness(1.12)}
+  button.pri:disabled{opacity:.5;cursor:default;filter:none}
+  button.gh{background:var(--subtle);border:1px solid var(--line);color:var(--ink);border-radius:6px;
+    padding:8px 15px;font:13.5px/1 inherit;cursor:pointer}
+  button.gh:hover{border-color:var(--link)}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px;margin-bottom:14px}
+  .card h2{font-size:13.5px;font-weight:600;margin:0 0 10px;padding-bottom:9px;border-bottom:1px solid var(--line)}
+  .path{flex:1;background:var(--bg);border:1px dashed var(--line);border-radius:6px;padding:8px 11px;
+    color:var(--muted);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .path.set{color:var(--ink);border-style:solid}
+  pre{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:11px 13px;margin:0;
+    font:12.5px/1.6 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-all;
+    max-height:260px;overflow:auto;color:var(--muted)}
+  .hint{color:var(--muted);font-size:12.5px;margin-top:8px}
+  .out{color:var(--ink);white-space:pre-wrap;font-size:14px;line-height:1.8;min-height:60px}
+  .tag{display:inline-block;background:rgba(56,139,253,.15);color:var(--link);border:1px solid var(--line);
+    border-radius:999px;padding:1px 9px;font-size:11.5px;margin-left:6px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">译</div>
+  <h1>本地翻译</h1>
+  <span class="dot" id="svc" title="本地服务状态"></span>
+</header>
+
+<nav>
+  <button class="on" data-p="text">文本</button>
+  <button data-p="media">视频字幕</button>
+  <button data-p="doc">文档</button>
+  <button data-p="image">图片</button>
+  <button data-p="set">设置</button>
+</nav>
+
+<main>
+  <!-- 文本 -->
+  <section class="page on" id="p-text">
+    <div class="row">
+      <label>方向</label>
+      <select id="lang">
+        <option value="ja2zh">日语 → 中文</option>
+        <option value="zh2ja">中文 → 日语</option>
+        <option value="en2zh">英语 → 中文</option>
+      </select>
+      <label>风格</label><select id="tpl1"></select>
+      <label>模型</label><select id="mdl1"></select>
+    </div>
+    <textarea id="src" placeholder="在这里粘贴要翻译的内容，或者点下面的按钮读剪贴板"></textarea>
+    <div class="row" style="margin-top:12px">
+      <button class="pri" id="go">翻译</button>
+      <button class="gh" id="clip">读剪贴板</button>
+      <button class="gh" id="copy">复制结果</button>
+      <span class="hint" id="t-stat"></span>
+    </div>
+    <div class="card"><h2>译文</h2><div class="out" id="dst"></div></div>
+  </section>
+
+  <!-- 视频字幕 -->
+  <section class="page" id="p-media">
+    <div class="card">
+      <h2>视频或音频转中日双语字幕</h2>
+      <div class="row">
+        <button class="gh" id="pick-media">选择文件</button>
+        <div class="path" id="path-media">还没有选择文件</div>
+      </div>
+      <div class="row">
+        <label>翻译模型</label><select id="mdl2"></select>
+        <button class="pri" id="run-media">开始</button>
+        <button class="gh" id="open-media" disabled>打开输出目录</button>
+      </div>
+      <p class="hint">识别用 whisper large-v3-turbo，输出与源文件同目录的「文件名.双语.srt」。
+        第一次运行要加载模型，大约 20 秒，之后每个文件会快很多。</p>
+      <pre id="log-media">等待开始…</pre>
+    </div>
+  </section>
+
+  <!-- 文档 -->
+  <section class="page" id="p-doc">
+    <div class="card">
+      <h2>字幕或文档翻译</h2>
+      <div class="row">
+        <button class="gh" id="pick-doc">选择文件</button>
+        <div class="path" id="path-doc">还没有选择文件</div>
+      </div>
+      <div class="row">
+        <label>风格</label><select id="tpl2"></select>
+        <label>模型</label><select id="mdl3"></select>
+        <button class="pri" id="run-doc">开始</button>
+        <button class="gh" id="open-doc" disabled>打开输出目录</button>
+      </div>
+      <p class="hint">支持 srt、vtt、ass、txt、md。字幕的时间轴会原样保留，输出到源文件同目录的「文件名.zh」。</p>
+      <pre id="log-doc">等待开始…</pre>
+    </div>
+  </section>
+
+  <!-- 图片 -->
+  <section class="page" id="p-image">
+    <div class="card">
+      <h2>图片或漫画翻译</h2>
+      <div class="row">
+        <button class="gh" id="pick-image">选择图片</button>
+        <div class="path" id="path-image">还没有选择图片</div>
+      </div>
+      <div class="row">
+        <label>翻译模型</label><select id="mdl4"></select>
+        <button class="pri" id="run-image">开始</button>
+        <button class="gh" id="open-image" disabled>打开输出目录</button>
+      </div>
+      <p class="hint">识别用 manga-ocr，中文会贴回原图对应位置，输出「文件名_zh.png」和一份对照文本。</p>
+      <pre id="log-image">等待开始…</pre>
+    </div>
+  </section>
+
+  <!-- 设置 -->
+  <section class="page" id="p-set">
+    <div class="card">
+      <h2>本地服务</h2>
+      <div class="row">
+        <span class="dot" id="svc2"></span>
+        <span id="svc-text" style="color:var(--muted)">检查中…</span>
+        <button class="gh" id="svc-start">启动服务</button>
+      </div>
+      <p class="hint">翻译服务跑在本机 18765 端口，浏览器扩展、油猴脚本和这个软件共用它。</p>
+    </div>
+    <div class="card">
+      <h2>可用模型</h2>
+      <div id="model-list" style="color:var(--muted);font-size:13px"></div>
+      <p class="hint">3b 大约 89 tok/s，7b 大约 31 tok/s。显存 6 GB，两个模型同时加载会互相挤。</p>
+    </div>
+    <div class="card">
+      <h2>最近翻译</h2>
+      <div id="hist" style="font-size:13px;color:var(--muted)">读取中…</div>
+      <div class="row" style="margin-top:10px">
+        <button class="gh" id="hist-reload">刷新</button>
+        <button class="gh" id="hist-export">导出 Anki 表格</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+let api = null, mediaPath = '', docPath = '', imagePath = '', timer = null;
+
+function $(s){ return document.querySelector(s); }
+
+// pywebview 的 ready 事件有时比脚本注册还早，所以三种方式都试一遍，只初始化一次
+let booted = false;
+async function boot(){
+  if(booted || !window.pywebview || !window.pywebview.api) return;
+  booted = true;
+  api = window.pywebview.api;
+  let cfg = { langs:{}, templates:{}, models:{} };
+  try { cfg = await api.get_config(); } catch(e) {}
+  fill('lang', cfg.langs, 'ja2zh');
+  fill('tpl1', cfg.templates, 'subtitle');
+  fill('tpl2', cfg.templates, 'subtitle');
+  ['mdl1','mdl2','mdl3','mdl4'].forEach(id => fill(id, cfg.models, 'fast'));
+  const ml = $('#model-list');
+  if(ml) ml.innerHTML = Object.entries(cfg.models).map(([k,v]) => `<div>${k} → ${v}</div>`).join('') || '没读到模型配置';
+  const st = $('#t-stat');
+  if(st) st.textContent = `就绪 · ${Object.keys(cfg.templates).length} 种风格 · ${Object.keys(cfg.models).length} 个模型`;
+  refreshService();
+  loadHistory();
+  setInterval(refreshService, 20000);
+}
+window.addEventListener('pywebviewready', boot);
+window.addEventListener('DOMContentLoaded', () => setTimeout(boot, 400));
+const _bootTimer = setInterval(() => { if(booted){ clearInterval(_bootTimer); } else { boot(); } }, 400);
+setTimeout(() => clearInterval(_bootTimer), 15000);
+
+function fill(id, obj, prefer){
+  // 直接把原来的 select 换成新建的，避免任何残留状态
+  const old = document.getElementById(id);
+  if(!old || !obj || !Object.keys(obj).length) return 0;
+  const sel = document.createElement('select');
+  sel.id = id;
+  if(old.className) sel.className = old.className;
+  let n = 0;
+  Object.keys(obj).forEach(k => {
+    const o = document.createElement('option');
+    o.value = k;
+    o.textContent = String(obj[k] == null ? k : obj[k]);
+    if(k === prefer) o.selected = true;
+    sel.appendChild(o);
+    n++;
+  });
+  if(old.parentNode) old.parentNode.replaceChild(sel, old);
+  return n;
+}
+
+// 标签切换
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('on', p.id === 'p-' + b.dataset.p));
+  if(b.dataset.p === 'set') loadHistory();
+  if(b.dataset.p === 'text') $('#src').focus();
+});
+
+// 服务状态
+async function refreshService(){
+  if(!api) return;
+  const s = await api.service_status();
+  ['#svc','#svc2'].forEach(sel => {
+    const el = $(sel); if(!el) return;
+    el.classList.toggle('ok', s.up); el.classList.toggle('bad', !s.up);
+  });
+  $('#svc-text').textContent = s.up ? '运行中（' + s.url + '）' : '没在运行';
+}
+$('#svc-start').onclick = async () => {
+  $('#svc-text').textContent = '正在启动…';
+  const r = await api.start_service();
+  $('#svc-text').textContent = r.msg;
+  refreshService();
+};
+
+// 文本翻译
+$('#go').onclick = async () => {
+  const text = $('#src').value.trim();
+  if(!text) return;
+  $('#go').disabled = true; $('#t-stat').textContent = '翻译中…';
+  const t0 = Date.now();
+  const r = await api.translate(text, $('#tpl1').value, $('#mdl1').value, $('#lang').value);
+  $('#go').disabled = false;
+  if(r.ok){
+    $('#dst').textContent = r.text;
+    $('#t-stat').textContent = `${text.length} 字，用了 ${((Date.now()-t0)/1000).toFixed(1)} 秒`;
+  } else {
+    $('#dst').textContent = '';
+    $('#t-stat').textContent = r.msg || '失败';
+  }
+};
+$('#clip').onclick = async () => {
+  const r = await api.clipboard_translate($('#tpl1').value, $('#mdl1').value);
+  if(r.ok){ $('#src').value = ''; $('#dst').textContent = r.text; $('#t-stat').textContent = '已翻译剪贴板内容并写回'; }
+  else $('#t-stat').textContent = r.msg || '剪贴板里没有文字';
+};
+$('#copy').onclick = () => {
+  const t = $('#dst').textContent;
+  if(t){ navigator.clipboard.writeText(t); $('#t-stat').textContent = '已复制译文'; }
+};
+
+// 任务通用流程
+async function pick(kind, pathEl, setter){
+  const r = await api.pick_file(kind);
+  if(r.ok){
+    setter(r.path);
+    const el = $(pathEl);
+    el.textContent = r.path; el.classList.add('set');
+  } else if(r.msg && r.msg !== '没有选择文件'){
+    alert(r.msg);
+  }
+}
+
+async function run(kind, path, tpl, model, logEl, openBtn){
+  if(!path){ alert('先选择文件'); return; }
+  const log = $(logEl);
+  log.textContent = '已提交，正在启动…\n';
+  if(timer) clearInterval(timer);
+  const r = await api.run_job(kind, path, tpl, model);
+  if(!r.ok){ log.textContent += r.msg || '提交失败'; return; }
+  const jid = r.job;
+  $(openBtn).disabled = true;
+  timer = setInterval(async () => {
+    const s = await api.job_status(jid);
+    log.textContent = s.log.join('\n') + `\n\n[${s.state} · ${s.elapsed}s]`;
+    log.scrollTop = log.scrollHeight;
+    if(s.state === 'done' || s.state === 'failed'){
+      clearInterval(timer); timer = null;
+      $(openBtn).disabled = false;
+      log.textContent += s.state === 'done' ? '\n\n完成，可以打开输出目录查看。' : '\n\n失败，看上面的输出。';
+    }
+  }, 1000);
+}
+
+$('#pick-media').onclick = () => pick('media', '#path-media', p => mediaPath = p);
+$('#pick-doc').onclick   = () => pick('doc',   '#path-doc',   p => docPath = p);
+$('#pick-image').onclick = () => pick('image', '#path-image', p => imagePath = p);
+
+$('#run-media').onclick = () => run('media', mediaPath, 'subtitle', $('#mdl2').value, '#log-media', '#open-media');
+$('#run-doc').onclick   = () => run('doc',   docPath,   $('#tpl2').value, $('#mdl3').value, '#log-doc', '#open-doc');
+$('#run-image').onclick = () => run('image', imagePath, 'subtitle', $('#mdl4').value, '#log-image', '#open-image');
+
+$('#open-media').onclick = () => api.open_folder(mediaPath);
+$('#open-doc').onclick   = () => api.open_folder(docPath);
+$('#open-image').onclick = () => api.open_folder(imagePath);
+
+// 历史
+async function loadHistory(){
+  if(!api) return;
+  const h = await api.history(8);
+  const el = $('#hist');
+  if(!h.items || !h.items.length){ el.textContent = '还没有记录'; return; }
+  el.innerHTML = `共 ${h.count} 条<br>` + h.items.slice(0, 8).map(i =>
+    `<div style="margin:6px 0;padding-bottom:6px;border-bottom:1px solid var(--line)">
+       <div style="color:var(--ink)">${(i.dst||'').slice(0,60)}</div>
+       <div style="font-size:12px">${(i.src||'').slice(0,50)} · ${i.ts||''}</div>
+     </div>`).join('');
+}
+$('#hist-reload').onclick = loadHistory;
+$('#hist-export').onclick = () => window.open('http://127.0.0.1:18765/export/anki.tsv', '_blank');
+</script>
+</body>
+</html>
