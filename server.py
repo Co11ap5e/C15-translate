@@ -77,13 +77,42 @@ def deepl_translate(text, lang="ja2zh"):
         headers={"Authorization": "DeepL-Auth-Key " + key,
                  "Content-Type": "application/x-www-form-urlencoded"},
     )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            data = json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", "replace")[:160]
-        raise RuntimeError("DeepL 返回 %s: %s" % (e.code, detail))
+    data = _deepl_post(host, key, form)
     return ((data.get("translations") or [{}])[0].get("text") or "").strip()
+
+
+_DEEPL_CONN = {"conn": None, "host": None}
+
+
+def _deepl_post(host, key, form):
+    """复用 HTTPS 连接：每句都重新握手要多花 0.6~1 秒。"""
+    import http.client
+
+    body = urllib.parse.urlencode(form)
+    headers = {"Authorization": "DeepL-Auth-Key " + key,
+               "Content-Type": "application/x-www-form-urlencoded"}
+    last = None
+    for _try in (1, 2):
+        conn = _DEEPL_CONN.get("conn")
+        if conn is None or _DEEPL_CONN.get("host") != host:
+            conn = http.client.HTTPSConnection(host, timeout=20)
+            _DEEPL_CONN["conn"] = conn
+            _DEEPL_CONN["host"] = host
+        try:
+            conn.request("POST", "/v2/translate", body=body, headers=headers)
+            r = conn.getresponse()
+            raw = r.read().decode("utf-8")
+            if r.status != 200:
+                raise RuntimeError("DeepL 返回 %s: %s" % (r.status, raw[:160]))
+            return json.loads(raw)
+        except Exception as e:
+            last = e
+            try:
+                conn.close()
+            except Exception:
+                pass
+            _DEEPL_CONN["conn"] = None
+    raise last
 
 OPTS = CFG.get("options", {})
 TEMPLATES = CFG.get("templates", {})
