@@ -12,6 +12,7 @@
 单独用一个模块，是因为 app.py 里塞太多东西会不好读。
 """
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -173,7 +174,7 @@ class LiveCaptions:
         block = int(sr * 0.25)            # 每次读 0.25 秒
         sil_need = max(2, int(round(self.sil / 0.25)))   # 连续这么久静音 = 一句结束
         min_speech = int(sr * 0.45)       # 短于这个不算一句
-        max_len = int(sr * 12)            # 超过 12 秒强制提交，免得一直等
+        max_len = int(sr * 6)             # 超过 6 秒强制提交：长独白不用等说完
         buf = np.zeros(0, dtype="float32")
         sil = 0
         try:
@@ -208,24 +209,65 @@ class LiveCaptions:
                         continue
                     if any(j in text for j in JUNK):
                         continue
-                    zh = self._translate(text)
-                    with self._lock:
-                        self.lines.append({"ja": text, "zh": zh,
-                                           "ts": time.strftime("%H:%M:%S")})
-                        if len(self.lines) > 2000:
-                            self.lines = self.lines[-2000:]
-                    self.stats["chars"] += len(text)
-                    if self.on_line:
-                        try:
-                            self.on_line(self.lines[-1])
-                        except Exception:
-                            pass
+                    # 长句拆几段分别翻译：第一段翻完就先上屏，不用等整段翻完
+                    parts = self._split_parts(text)
+                    if len(parts) > 1:
+                        self.stats["split"] = self.stats.get("split", 0) + len(parts) - 1
+                    for part in parts:
+                        self._push(part, self._translate(part))
         except Exception as e:
             self.state, self.error = "error", str(e)[:160]
             return
         self.state = "idle"
 
     # ── 工具 ──
+    def _push(self, ja, zh):
+        line = {"ja": ja, "zh": zh, "ts": time.strftime("%H:%M:%S")}
+        with self._lock:
+            self.lines.append(line)
+            if len(self.lines) > 2000:
+                self.lines = self.lines[-2000:]
+        self.stats["chars"] += len(ja)
+        if self.on_line:
+            try:
+                self.on_line(line)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _split_parts(text, limit=60):
+        """长文先按句末标点断，太长再按逗号断，还长就硬切。
+
+        目的：一句独白不用等整段翻译完，第一段出来就先显示。
+        """
+        t = (text or "").strip()
+        if not t:
+            return []
+        if len(t) <= limit:
+            return [t]
+        out = []
+        for sent in re.split(r"(?<=[。！？!?…；;])", t):
+            sent = sent.strip()
+            if not sent:
+                continue
+            if len(sent) <= limit:
+                out.append(sent)
+                continue
+            for piece in re.split(r"(?<=[，、,])", sent):
+                piece = piece.strip()
+                while len(piece) > limit:
+                    out.append(piece[:limit])
+                    piece = piece[limit:]
+                if piece:
+                    out.append(piece)
+        merged = []
+        for piece in out:
+            if merged and len(piece) < 8 and len(merged[-1]) + len(piece) <= limit + 12:
+                merged[-1] += piece
+            else:
+                merged.append(piece)
+        return merged or [t]
+
     @staticmethod
     def _to_wav(audio, sr):
         pcm = (audio * 32767).astype("int16").tobytes()
