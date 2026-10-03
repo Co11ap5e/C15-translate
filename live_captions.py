@@ -174,7 +174,7 @@ class LiveCaptions:
         block = int(sr * 0.25)            # 每次读 0.25 秒
         sil_need = max(2, int(round(self.sil / 0.25)))   # 连续这么久静音 = 一句结束
         min_speech = int(sr * 0.45)       # 短于这个不算一句
-        max_len = int(sr * 6)             # 超过 6 秒强制提交：长独白不用等说完
+        max_len = int(sr * 4)             # 超过 4 秒强制提交：宁可多切几次，也不要等
         buf = np.zeros(0, dtype="float32")
         sil = 0
         try:
@@ -235,34 +235,33 @@ class LiveCaptions:
                 pass
 
     @staticmethod
-    def _split_parts(text, limit=60):
-        """长文先按句末标点断，太长再按逗号断，还长就硬切。
+    def _split_parts(text, limit=28, hard=45):
+        """一次只翻一到两句，短句合并、长句拆开，图的是快。
 
-        目的：一句独白不用等整段翻译完，第一段出来就先显示。
+        limit：合并后的目标长度（约一到两句）
+        hard ：单句超过这个长度就按逗号再拆，免得一次喂太多等半天
         """
         t = (text or "").strip()
         if not t:
             return []
-        if len(t) <= limit:
+        sents = [x.strip() for x in re.split(r"(?<=[。！？!?…；;])", t) if x.strip()]
+        if not sents:
             return [t]
         out = []
-        for sent in re.split(r"(?<=[。！？!?…；;])", t):
-            sent = sent.strip()
-            if not sent:
-                continue
-            if len(sent) <= limit:
+        for sent in sents:
+            if len(sent) <= hard:
                 out.append(sent)
                 continue
             for piece in re.split(r"(?<=[，、,])", sent):
                 piece = piece.strip()
-                while len(piece) > limit:
-                    out.append(piece[:limit])
-                    piece = piece[limit:]
+                while len(piece) > hard:
+                    out.append(piece[:hard])
+                    piece = piece[hard:]
                 if piece:
                     out.append(piece)
         merged = []
         for piece in out:
-            if merged and len(piece) < 8 and len(merged[-1]) + len(piece) <= limit + 12:
+            if merged and len(merged[-1]) + len(piece) <= limit:
                 merged[-1] += piece
             else:
                 merged.append(piece)
