@@ -80,6 +80,7 @@ class Tray:
         self._class_atom = None
         self._cmd = {}
         self.added = False
+        self.taskbar_msg = 0
 
     def log(self, msg):
         line = "%s  %s" % (time.strftime("%H:%M:%S"), msg)
@@ -106,6 +107,14 @@ class Tray:
                 self._popup(hwnd)
             elif lparam == WM_LBUTTONDBLCLK:
                 self._fire(1)
+            return 0
+        if self.taskbar_msg and msg == self.taskbar_msg:
+            self.log("收到 TaskbarCreated，重新注册托盘图标")
+            self.added = False
+            try:
+                self.add()
+            except Exception as _e:
+                self.log("重注册失败: %r" % _e)
             return 0
         if msg == WM_HOTKEY:
             self.log("热键触发，显示窗口")
@@ -172,6 +181,9 @@ class Tray:
         self.hicon = self._load_icon()
         self.log("图标句柄 -> %s (err=%s)" % (self.hicon, ctypes.get_last_error()))
 
+        # explorer 重启（或还没就绪）时会广播 TaskbarCreated，收到就重新注册
+        self.taskbar_msg = user32.RegisterWindowMessageW("TaskbarCreated")
+        self.log("TaskbarCreated 消息号 = %s" % self.taskbar_msg)
         sys_icon = user32.LoadIconW(None, wintypes.LPCWSTR(IDI_APPLICATION))
         tries = [("文件图标+提示+消息", NIF_MESSAGE | NIF_ICON | NIF_TIP, self.hicon),
                  ("系统图标+提示+消息", NIF_MESSAGE | NIF_ICON | NIF_TIP, sys_icon),
@@ -196,7 +208,12 @@ class Tray:
         return False
 
     def run(self):
-        self.add()
+        # 启动阶段 explorer 可能还没就绪，失败就隔一会儿重试几次
+        for attempt in range(1, 7):
+            if self.add():
+                self.log("托盘图标注册成功（第 %d 次尝试）" % attempt)
+                break
+            time.sleep(0.7)
         hk = 0
         combos = [("Ctrl+Alt+L", MOD_ALT | MOD_CONTROL, 0x4C),
                   ("Ctrl+Alt+F9", MOD_ALT | MOD_CONTROL, 0x78),
