@@ -20,6 +20,8 @@ WM_DESTROY = 0x0002
 WM_LBUTTONDBLCLK = 0x0203
 WM_RBUTTONUP = 0x0205
 WM_COMMAND = 0x0111
+WM_HOTKEY = 0x0312
+MOD_ALT, MOD_CONTROL = 0x0001, 0x0002
 WM_NULL = 0x0000
 
 NIM_ADD, NIM_MODIFY, NIM_DELETE = 0, 1, 2
@@ -77,6 +79,7 @@ class Tray:
         self._proc = None
         self._class_atom = None
         self._cmd = {}
+        self.added = False
 
     def log(self, msg):
         line = "%s  %s" % (time.strftime("%H:%M:%S"), msg)
@@ -103,6 +106,10 @@ class Tray:
                 self._popup(hwnd)
             elif lparam == WM_LBUTTONDBLCLK:
                 self._fire(1)
+            return 0
+        if msg == WM_HOTKEY:
+            self.log("热键触发，显示窗口")
+            self._fire(1)
             return 0
         if msg == WM_COMMAND:
             self._fire(wparam & 0xFFFF)
@@ -165,23 +172,35 @@ class Tray:
         self.hicon = self._load_icon()
         self.log("图标句柄 -> %s (err=%s)" % (self.hicon, ctypes.get_last_error()))
 
-        nid = NOTIFYICONDATAW()
-        nid.cbSize = ctypes.sizeof(NOTIFYICONDATAW)
-        nid.hWnd = self.hwnd
-        nid.uID = 1
-        nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP
-        nid.uCallbackMessage = WM_TRAY
-        nid.hIcon = self.hicon
-        nid.szTip = self.tooltip[:127]
-        ok = shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid))
-        err = ctypes.get_last_error()
-        self.log("Shell_NotifyIconW(NIM_ADD) -> %s (err=%s)" % (ok, err))
-        self._nid = nid
-        return bool(ok)
+        sys_icon = user32.LoadIconW(None, wintypes.LPCWSTR(IDI_APPLICATION))
+        tries = [("文件图标+提示+消息", NIF_MESSAGE | NIF_ICON | NIF_TIP, self.hicon),
+                 ("系统图标+提示+消息", NIF_MESSAGE | NIF_ICON | NIF_TIP, sys_icon),
+                 ("只有提示+消息", NIF_MESSAGE | NIF_TIP, 0),
+                 ("只有消息", NIF_MESSAGE, 0)]
+        for tag, flags, hicon in tries:
+            nid = NOTIFYICONDATAW()
+            nid.cbSize = ctypes.sizeof(NOTIFYICONDATAW)
+            nid.hWnd = self.hwnd
+            nid.uID = 1
+            nid.uFlags = flags
+            nid.uCallbackMessage = WM_TRAY
+            nid.hIcon = hicon or None
+            nid.szTip = self.tooltip[:127]
+            ok = shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid))
+            self.log("NIM_ADD[%s] -> %s (err=%s)" % (tag, ok, ctypes.get_last_error()))
+            if ok:
+                self._nid = nid
+                self.added = True
+                return True
+        self.log("四种注册方式都被拒，这次不要托盘图标（热键照样能用）")
+        return False
 
     def run(self):
-        if not self.add():
-            raise RuntimeError("托盘注册失败，看 tray.log")
+        self.add()
+        hk = user32.RegisterHotKey(self.hwnd, 1, MOD_ALT | MOD_CONTROL, 0x54)
+        self.log("RegisterHotKey(Ctrl+Alt+T) -> %s (err=%s)" % (hk, ctypes.get_last_error()))
+        if not self.added and not hk:
+            raise RuntimeError("托盘和热键都没建起来，看 tray.log")
         msg = wintypes.MSG()
         while True:
             r = user32.GetMessageW(ctypes.byref(msg), None, 0, 0)
