@@ -256,6 +256,15 @@ class Api:
     def live_clear(self):
         return _live.clear()
 
+    def quit_app(self):
+        """设置页那个按钮：连字幕窗一起关掉。"""
+        try:
+            if _service_proc and _service_proc.poll() is None:
+                _service_proc.terminate()
+        except Exception:
+            pass
+        os._exit(0)
+
     # ── 实时字幕 ──
     def live_devices(self):
         return _live.devices()
@@ -576,6 +585,15 @@ def overlay_save_pos(win):
 
 
 def make_tray_image():
+    """托盘图标用 FoldLive 的 app.ico，读不到再退回画一个。"""
+    for _p in (os.path.join(RES, "app.ico"), os.path.join(WORK, "app.ico")):
+        try:
+            if os.path.isfile(_p):
+                _im = Image.open(_p)
+                _im.load()
+                return _im.convert("RGBA").resize((64, 64))
+        except Exception:
+            pass
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     d.rounded_rectangle([4, 4, 60, 60], radius=14, fill=(35, 134, 54, 255))
@@ -607,11 +625,11 @@ def tray_thread(api):
                 _service_proc.terminate()
         except Exception:
             pass
-        icon.stop()
         try:
-            _window.destroy()
+            icon.stop()
         except Exception:
-            os._exit(0)
+            pass
+        os._exit(0)
 
     menu = pystray.Menu(
         pystray.MenuItem("显示窗口", show, default=True),
@@ -621,8 +639,19 @@ def tray_thread(api):
         pystray.MenuItem("退出", quit_),
     )
     global _tray
+    # pystray 建消息窗口时会调 ChangeWindowMessageFilterEx，有些权限环境下 access denied，
+    # 把这一次调用变成空操作（UIPI 消息过滤对我们没影响）。
+    try:
+        from pystray._util import win32 as _pw
+
+        _pw.ChangeWindowMessageFilterEx = lambda *a, **k: None
+    except Exception:
+        pass
     _tray = pystray.Icon("local-translate", make_tray_image(), "本地翻译", menu)
-    _tray.run()
+    try:
+        _tray.run()
+    except Exception as _e:
+        print("[tray]", _e)
 
 
 def main():
@@ -644,6 +673,14 @@ def main():
         if not service_alive():
             api.start_service()
 
+    def on_closing():
+        """关主窗口只是收起来，字幕窗还要继续挂在视频上；真要退出走托盘或设置页。"""
+        try:
+            _window.hide()
+        except Exception:
+            pass
+        return False
+
     # 独立的置顶字幕窗，无边框、可拖动，初始隐藏
     global _overlay
     try:
@@ -660,6 +697,7 @@ def main():
         print("[overlay]", e)
 
     _window.events.loaded += on_loaded
+    _window.events.closing += on_closing
     threading.Thread(target=tray_thread, args=(api,), daemon=True).start()
     webview.start(debug=False)
 
