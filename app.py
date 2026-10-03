@@ -747,14 +747,21 @@ def main():
             api.start_service()
 
     def on_closing():
-        """关主窗口不退出：缩到任务栏（任务栏按钮一定点得回来），字幕窗继续挂在视频上。
-        这台机器的托盘图标和全局热键都被系统挡掉了，所以只留任务栏这条路。
-        真要退出用设置页里的「退出程序」。"""
+        """关窗口就是退出程序：连字幕窗一起关掉，托盘图标也跟着消失。"""
+        global _service_proc
         try:
-            _window.minimize()
+            if _overlay:
+                _overlay.destroy()
         except Exception:
             pass
-        return False
+        try:
+            if _service_proc and _service_proc.poll() is None:
+                _service_proc.terminate()
+        except Exception:
+            pass
+        # 事件里直接退会卡住 WebView2 的收尾，交给定时器收场
+        threading.Timer(0.4, lambda: os._exit(0)).start()
+        return True
 
     # 独立的置顶字幕窗，无边框、可拖动，初始隐藏
     global _overlay
