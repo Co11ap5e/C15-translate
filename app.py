@@ -638,7 +638,63 @@ def tray_thread(api):
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("退出", quit_),
     )
-    # 先用自己写的 Win32 托盘（会写日志、能看见失败原因），不行再退回 pystray
+    # 首选 .NET 的 WinForms NotifyIcon：和 ctypes 那套是完全不同的实现
+    # （CLR 自己 marshal NOTIFYICONDATA、自带消息窗口），而这程序的主界面本来就跑在 WinForms 上。
+    try:
+        import clr
+
+        clr.AddReference("System.Windows.Forms")
+        clr.AddReference("System.Drawing")
+        import System.Drawing as SD
+        import System.Threading as ST
+        import System.Windows.Forms as WF
+
+        def _tray_log(m):
+            try:
+                with open(os.path.join(WORK, "tray.log"), "a", encoding="utf-8") as f:
+                    f.write("%s  [.NET] %s\n" % (time.strftime("%H:%M:%S"), m))
+            except Exception:
+                pass
+
+        def _run_dotnet_tray():
+            ni = WF.NotifyIcon()
+            try:
+                ni.Icon = SD.Icon(os.path.join(RES, "app.ico"))
+            except Exception as e:
+                _tray_log("读 app.ico 失败: %r" % e)
+                ni.Icon = SD.SystemIcons.Application
+            ni.Text = "本地翻译"
+            menu = WF.ContextMenuStrip()
+            for label, cb in (("显示窗口", show), ("隐藏窗口", hide), ("翻译剪贴板", clip)):
+                it = WF.ToolStripMenuItem(label)
+                it.Click += (lambda s2, e2, c=cb: c(None, None))
+                menu.Items.Add(it)
+            menu.Items.Add(WF.ToolStripSeparator())
+            it = WF.ToolStripMenuItem("退出")
+            it.Click += (lambda s2, e2: quit_(None, None))
+            menu.Items.Add(it)
+            ni.ContextMenuStrip = menu
+            ni.DoubleClick += (lambda s2, e2: show(None, None))
+            ni.Visible = True
+            _tray_log("NotifyIcon.Visible = %s" % ni.Visible)
+            try:
+                ni.ShowBalloonTip(4000, "本地翻译", "已经在运行；关窗口只是缩到任务栏。", WF.ToolTipIcon.Info)
+            except Exception:
+                pass
+            WF.Application.Run()
+
+        _th = ST.Thread(ST.ThreadStart(_run_dotnet_tray))
+        _th.SetApartmentState(ST.ApartmentState.STA)
+        _th.IsBackground = True
+        _th.Start()
+        time.sleep(2.5)
+        if _th.IsAlive:
+            return
+        print("[tray .NET] 线程没起来")
+    except Exception as _dn:
+        print("[tray .NET]", _dn)
+
+    # 其次用自己写的 Win32 托盘（会写日志、能看见失败原因），不行再退回 pystray
     try:
         import tray_win32
 

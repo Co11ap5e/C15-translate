@@ -172,11 +172,15 @@ class Tray:
         self._class_atom = atom
         self.log("RegisterClassExW -> %s (err=%s)" % (atom, ctypes.get_last_error()))
 
-        self.hwnd = user32.CreateWindowExW(0, cls, "本地翻译", 0, 0, 0, 0, 0, None, None, hinst, None)
+        # hInstance 必须当指针传：直接给 int，ctypes 会按 32 位截断并退化成 NULL，
+        # 窗口的宿主模块就无效，Shell_NotifyIcon 会以 ERROR_ACCESS_DENIED 拒绝。
+        self.hwnd = user32.CreateWindowExW(0, cls, "本地翻译", 0, 0, 0, 0, 0, None, None,
+                                           ctypes.c_void_p(hinst), None)
         self.log("CreateWindowExW -> %s (err=%s)" % (self.hwnd, ctypes.get_last_error()))
         if not self.hwnd:
             # 换个办法：用隐藏的普通窗口
-            self.hwnd = user32.CreateWindowExW(0, "STATIC", "本地翻译", 0, 0, 0, 0, 0, None, None, hinst, None)
+            self.hwnd = user32.CreateWindowExW(0, "STATIC", "本地翻译", 0, 0, 0, 0, 0, None, None,
+                                               ctypes.c_void_p(hinst), None)
             self.log("换成 STATIC 窗口 -> %s (err=%s)" % (self.hwnd, ctypes.get_last_error()))
         if not self.hwnd:
             return False
