@@ -31,8 +31,12 @@ import live_captions
 import summarize
 
 BASE = os.path.dirname(os.path.abspath(__file__))
+# 打包成 exe 之后，代码和资源在临时解包目录里，配置和历史要写在 exe 旁边
+FROZEN = getattr(sys, "frozen", False)
+RES = getattr(sys, "_MEIPASS", BASE) if FROZEN else BASE
+WORK = os.path.dirname(sys.executable) if FROZEN else BASE
 SERVICE = "http://127.0.0.1:18765"
-CONFIG = os.path.join(BASE, "config.json")
+CONFIG = os.path.join(WORK, "config.json")
 
 _jobs = {}            # 任务 id -> {state, log, out, t0}
 _job_seq = 0
@@ -68,7 +72,21 @@ def service_alive():
         return False
 
 
+def ensure_config():
+    """打包后 exe 旁边没有 config.json 时，从内置的那份复制出来。"""
+    if not FROZEN:
+        return
+    dst, src = os.path.join(WORK, "config.json"), os.path.join(RES, "config.json")
+    if not os.path.exists(dst) and os.path.exists(src):
+        try:
+            import shutil
+            shutil.copyfile(src, dst)
+        except Exception:
+            pass
+
+
 def load_config():
+    ensure_config()
     try:
         return json.load(open(CONFIG, encoding="utf-8"))
     except Exception:
@@ -89,10 +107,27 @@ class Api:
     def service_status(self):
         return {"up": service_alive(), "url": SERVICE}
 
+    def _start_service_inproc(self):
+        """打包后没有独立的 python 解释器，服务只能在本进程里起一个线程。"""
+        def run():
+            try:
+                import runpy
+                runpy.run_path(os.path.join(RES, "server.py"), run_name="__main__")
+            except Exception as e:
+                print("[service]", e)
+        threading.Thread(target=run, daemon=True).start()
+
     def start_service(self):
         global _service_proc
         if service_alive():
             return {"ok": True, "msg": "服务已在运行"}
+        if FROZEN:
+            self._start_service_inproc()
+            for _ in range(40):
+                time.sleep(0.5)
+                if service_alive():
+                    return {"ok": True, "msg": "服务已启动"}
+            return {"ok": False, "msg": "启动超时"}
         exe = sys.executable
         if exe.lower().endswith("pythonw.exe"):
             exe = exe[:-len("pythonw.exe")] + "python.exe"
@@ -172,6 +207,17 @@ class Api:
             _overlay.move(int(x), int(y))
             overlay_save_pos(_overlay)
             return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)[:100]}
+
+    def overlay_fit(self, height):
+        """字幕内容多高，窗口就多高，不在下面留空白。"""
+        try:
+            h = max(70, min(700, int(height)))
+            w = int(_overlay.width or 1100)
+            if abs(int(_overlay.height or 0) - h) >= 3:
+                _overlay.resize(w, h)
+            return {"ok": True, "h": h}
         except Exception as e:
             return {"ok": False, "msg": str(e)[:100]}
 
@@ -330,6 +376,29 @@ class Api:
 
         def worker():
             try:
+                # 打包后：图片翻译依赖 manga-ocr（带 2.5 GB torch），没打进 exe，
+                # 系统里装了 Python 和 manga-ocr，直接交给它跑。
+                if FROZEN and kind == "image":
+                    import shutil as _sh
+                    sys_py = _sh.which("python") or _sh.which("python3")
+                    script_path = os.path.join(RES, os.path.basename(cmd[1]))
+                    if sys_py:
+                        _jobs[jid]["log"].append("图片翻译交给系统 Python 运行")
+                        f0 = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+                        p0 = subprocess.Popen([sys_py, script_path] + cmd[2:], cwd=RES,
+                                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                              text=True, encoding="utf-8", errors="replace",
+                                              creationflags=f0, bufsize=1)
+                        for line in p0.stdout:
+                            if line.strip():
+                                _jobs[jid]["log"].append(line.rstrip())
+                                if len(_jobs[jid]["log"]) > 400:
+                                    _jobs[jid]["log"] = _jobs[jid]["log"][-400:]
+                        p0.wait()
+                        _jobs[jid]["state"] = "done" if p0.returncode == 0 else "failed"
+                        _jobs[jid]["out"] = os.path.dirname(os.path.abspath(path))
+                        return
+                    _jobs[jid]["log"].append("没找到系统 Python，无法运行图片翻译")
                 flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
                 p = subprocess.Popen(cmd, cwd=BASE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                      text=True, encoding="utf-8", errors="replace",
@@ -424,7 +493,7 @@ def overlay_default_pos(w, h):
 
 
 def overlay_load_pos(w, h):
-    path = os.path.join(BASE, "overlay_pos.json")
+    path = os.path.join(WORK, "overlay_pos.json")
     try:
         d = json.load(open(path, encoding="utf-8"))
         x, y = int(d["x"]), int(d["y"])
@@ -440,7 +509,7 @@ def overlay_load_pos(w, h):
 def overlay_save_pos(win):
     try:
         json.dump({"x": int(win.x), "y": int(win.y)},
-                  open(os.path.join(BASE, "overlay_pos.json"), "w", encoding="utf-8"))
+                  open(os.path.join(WORK, "overlay_pos.json"), "w", encoding="utf-8"))
     except Exception:
         pass
 
@@ -499,7 +568,7 @@ def main():
     global _window
     api = Api()
     # 直接读 HTML 内容传进去，避免 WebView2 缓存旧版页面
-    with open(os.path.join(BASE, "web", "app.html"), encoding="utf-8") as f:
+    with open(os.path.join(RES, "web", "app.html"), encoding="utf-8") as f:
         html = f.read()
 
     _window = webview.create_window(
@@ -517,7 +586,7 @@ def main():
     # 独立的置顶字幕窗，无边框、可拖动，初始隐藏
     global _overlay
     try:
-        with open(os.path.join(BASE, "web", "overlay.html"), encoding="utf-8") as f:
+        with open(os.path.join(RES, "web", "overlay.html"), encoding="utf-8") as f:
             ohtml = f.read()
         ow, oh = 1100, 215
         ox, oy = overlay_load_pos(ow, oh)

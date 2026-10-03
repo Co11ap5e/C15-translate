@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>安装本地双语翻译脚本</title>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--line:#30363d;--fg:#e6edf3;--dim:#8b949e;--acc:#58a6ff;--ok:#3fb950;--gd:#238636}
+  body{background:var(--bg);color:var(--fg);font:14px/1.8 system-ui,"Microsoft YaHei",sans-serif;margin:0;padding:26px}
+  h1{font-size:20px;margin:0 0 6px}
+  .sub{color:var(--dim);font-size:13px;margin-bottom:18px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+  .card h2{font-size:15px;margin:0 0 10px;color:var(--acc)}
+  code,textarea{font-family:ui-monospace,Consolas,monospace}
+  code{background:#0b1220;border:1px solid var(--line);border-radius:6px;padding:2px 7px;color:#7dd3fc;word-break:break-all}
+  button{background:#238636;color:#fff;border:0;border-radius:6px;padding:7px 14px;font-size:13px;cursor:pointer}
+  button.ghost{background:#21262d;border:1px solid var(--line);color:var(--fg)}
+  button:hover{filter:brightness(1.12)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0}
+  .ok{color:var(--ok)}
+  ol{padding-left:22px;margin:6px 0}
+  li{margin:5px 0}
+  textarea{width:100%;height:150px;background:#0b1220;color:var(--dim);border:1px solid var(--line);border-radius:9px;padding:9px;font-size:11px}
+</style>
+</head>
+<body>
+<h1>🌐 安装「本地双语翻译」用户脚本</h1>
+<div class="sub">整页扫描 + 段落级中日双语对照（沉浸式翻译风格）· 用你本机的 Ollama 模型</div>
+
+<div class="card">
+  <h2>方式 ① 从 URL 安装（推荐，最省事）</h2>
+  <ol>
+    <li>浏览器已装好 <b>Tampermonkey</b> 扩展（没装先去扩展商店装）</li>
+    <li>点开 Tampermonkey 图标 → <b>管理面板（Dashboard）</b> → 左侧 <b>实用工具 / Utilities</b></li>
+    <li>页面底部找到 <b>「从 URL 安装 / Install from URL」</b>，把下面这条粘进去 → 点安装</li>
+  </ol>
+  <div class="row"><code id="u1">http://127.0.0.1:18765/userscript.user.js</code>
+    <button class="ghost" onclick="cp('u1')">复制地址</button>
+    <button onclick="window.open('/userscript.user.js','_blank')">直接在浏览器打开（有的浏览器也能装）</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>方式 ② 复制代码 → 粘进编辑器（100% 可用 ✓）</h2>
+  <ol>
+    <li>Tampermonkey → <b>管理面板</b> → 右上角 <b>「+」添加新脚本</b></li>
+    <li>点下面的「复制脚本代码」→ 回到编辑器，<b>全选删掉模板</b> → 粘贴 → <b>Ctrl+S</b> 保存</li>
+  </ol>
+  <div class="row">
+    <button onclick="copyScript()">📋 复制脚本代码</button>
+    <span id="msg" class="ok"></span>
+  </div>
+  <textarea id="preview" readonly placeholder="点上面按钮后，代码会出现在这里（同时已复制到剪贴板）"></textarea>
+</div>
+
+<div class="card">
+  <h2>方式 ③ 从服务器的 HTTPS 地址安装（出门在外/别的电脑用）</h2>
+  <div class="row"><code id="u2">https://live.co11ap5e.site/sub/<SUBSCRIPTION_TOKEN>/userscript.user.js</code>
+    <button class="ghost" onclick="cp('u2')">复制地址</button></div>
+  <div class="sub" style="margin:6px 0 0">（同样的方式①流程，把这条填进「从 URL 安装」即可 ✓）</div>
+</div>
+
+<div class="card">
+  <h2>装好后怎么用</h2>
+  <ol>
+    <li>确认本机跑着：<b>Ollama</b> + <b>server.py</b>（双击 <code>启动.bat</code>）</li>
+    <li>打开任意网页 → 右下角出现「🌐 本地翻译」面板</li>
+    <li><b>Alt+T</b> 翻译本页 · <b>Alt+O</b> 显示/隐藏译文 · <b>Alt+A</b> 自动翻译开关 · <b>划词</b>出小气泡译文</li>
+    <li>先拿测试页试：<code>D:\DSH\local-translate\test-page.html</code></li>
+  </ol>
+</div>
+
+<script>
+function cp(id){
+  const t = document.getElementById(id).textContent;
+  navigator.clipboard.writeText(t).then(()=>alert('已复制：\n' + t));
+}
+async function copyScript(){
+  const msg = document.getElementById('msg');
+  msg.textContent = '获取中…';
+  try{
+    const r = await fetch('/userscript.user.js?t=' + Date.now());
+    const code = await r.text();
+    document.getElementById('preview').value = code.slice(0, 500) + '\n…（共 ' + code.length + ' 字符）';
+    await navigator.clipboard.writeText(code);
+    msg.textContent = '✓ 已复制全文（' + code.length + ' 字符）→ 去 Tampermonkey 粘贴';
+  }catch(e){
+    msg.textContent = '✗ 复制失败：' + e.message + '（请手动打开 /userscript.user.js 复制）';
+  }
+}
+</script>
+</body>
+</html>
