@@ -28,6 +28,8 @@ D:/DSH/tools/whisper/
 D:/DSH/tools/*.zip
 
 # 密钥
+deepl.json
+deepl-key.txt
 .local-secrets.json
 *secrets*.json
 

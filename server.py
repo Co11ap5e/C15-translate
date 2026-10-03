@@ -20,6 +20,7 @@ import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -34,6 +35,56 @@ OLLAMA = CFG.get("ollama", "http://127.0.0.1:11434").rstrip("/")
 HOST = CFG.get("host", "127.0.0.1")
 PORT = int(CFG.get("port", 18765))
 LANGS = CFG.get("langs", {})
+
+# ── DeepL（免费额度 50 万字符/月）──
+# key 放 deepl.json（内容 {"key": "xxxx:fx"}），或环境变量 DEEPL_KEY。
+# 免费版 key 以 :fx 结尾，走 api-free；其它走 api。
+_DEEPL_PAIRS = {
+    "ja2zh": ("JA", "ZH"), "en2zh": ("EN", "ZH"), "zh2ja": ("ZH", "JA"),
+    "zh2en": ("ZH", "EN"), "auto2zh": (None, "ZH"), "subtitle": (None, "ZH"),
+}
+
+
+def deepl_key():
+    k = (os.environ.get("DEEPL_KEY") or os.environ.get("DEEPL_AUTH_KEY") or "").strip()
+    if k:
+        return k
+    here = os.path.dirname(os.path.abspath(__file__))
+    for path in (os.path.join(here, "deepl.json"), os.path.join(here, "deepl-key.txt")):
+        try:
+            if os.path.isfile(path):
+                raw = io.open(path, encoding="utf-8").read().strip()
+                if raw.startswith("{"):
+                    return (json.loads(raw).get("key") or "").strip()
+                return raw
+        except Exception:
+            pass
+    return ""
+
+
+def deepl_translate(text, lang="ja2zh"):
+    key = deepl_key()
+    if not key:
+        raise RuntimeError('没有 DeepL key：把 key 填进 deepl.json（内容 {"key": "xxxx:fx"}）')
+    src, tgt = _DEEPL_PAIRS.get(lang or "ja2zh", (None, "ZH"))
+    form = [("text", text), ("target_lang", tgt)]
+    if src:
+        form.append(("source_lang", src))
+    host = "api-free.deepl.com" if key.endswith(":fx") else "api.deepl.com"
+    req = urllib.request.Request(
+        "https://%s/v2/translate" % host,
+        data=urllib.parse.urlencode(form).encode(),
+        headers={"Authorization": "DeepL-Auth-Key " + key,
+                 "Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")[:160]
+        raise RuntimeError("DeepL 返回 %s: %s" % (e.code, detail))
+    return ((data.get("translations") or [{}])[0].get("text") or "").strip()
+
 OPTS = CFG.get("options", {})
 TEMPLATES = CFG.get("templates", {})
 HIST = CFG.get("history", {})
@@ -284,12 +335,42 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._json(404, {"error": "not found"})
 
+    def handle_deepl(self, text, lang, template, stream):
+        try:
+            txt = deepl_translate(text, lang)
+        except Exception as e:
+            return self._json(502, {"error": str(e)[:220]})
+        log_history(text, txt, lang, "deepl", template)
+        if not stream:
+            return self._json(200, {"text": txt, "model": "deepl"})
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        try:
+            self.wfile.write(sse({"type": "start", "model": "deepl", "lang": lang}))
+            self.wfile.write(sse({"type": "delta", "text": txt}))
+            self.wfile.write(sse({"type": "done", "text": txt, "tokens": 0, "tok_s": 0, "wall_s": 0}))
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        try:
+            self.wfile.write(b"data: [DONE]\n\n")
+        except Exception:
+            pass
+        return
+
     def handle_translate(self):
         d = self._body()
         text = (d.get("text") or "").strip()
         lang = d.get("lang") or "ja2zh"
         model = pick_model(d.get("model"))
         stream = bool(d.get("stream", True))
+        if str(d.get("model") or "").lower().startswith("deepl"):
+            if not text:
+                return self._json(400, {"error": "text 不能为空"})
+            return self.handle_deepl(text, lang, d.get("template"), stream)
         if not text:
             return self._json(400, {"error": "text 不能为空"})
         template = d.get("template")

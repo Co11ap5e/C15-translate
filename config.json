@@ -6,7 +6,8 @@
   "models": {
     "fast": "qwen2.5:3b",
     "best": "qwen2.5:7b",
-    "tiny": "qwen2.5:1.5b"
+    "tiny": "qwen2.5:1.5b",
+    "deepl": "DeepL 免费版（联网，快）"
   },
   "options": {
     "temperature": 0.2,
