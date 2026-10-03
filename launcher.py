@@ -38,6 +38,14 @@ def find_app():
 
 
 def find_pythonw():
+    # 0. 随包带的运行时（便携版就靠这个，不碰系统里的 Python）
+    for sub in ("runtime", os.path.join("runtime", "")):
+        cand = os.path.join(HERE, sub, "pythonw.exe")
+        if os.path.isfile(cand):
+            return cand
+    cand = os.path.join(os.path.dirname(HERE), "runtime", "pythonw.exe")
+    if os.path.isfile(cand):
+        return cand
     # 1. PATH 里的 pythonw / python
     for name in ("pythonw", "python"):
         exe = shutil.which(name)

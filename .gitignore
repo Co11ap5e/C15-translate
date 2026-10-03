@@ -1,6 +1,7 @@
 # 测试和临时文件
 _test/
 tmp*/
+torchinductor_*
 overlay_pos.json
 history.jsonl
 *.log
@@ -18,6 +19,7 @@ dist/
 build_launcher/
 dist_launcher/
 启动器/
+便携版/
 本地翻译.exe
 _dbg.*
 

@@ -161,21 +161,41 @@ python app.py
 
 ### 打包
 
-```powershell
-python -m PyInstaller --noconfirm 本地翻译.spec      # 出 dist\本地翻译\
-python -m PyInstaller --noconfirm --onefile --noconsole --name 本地翻译 launcher.py
+用的是便携包：一个文件夹里自带 Python 运行时，双击 `本地翻译.exe` 就跑，不碰系统里装的那个 Python。
+
+```
+便携版\                146 MB
+├─ 本地翻译.exe         启动器，只负责找到身边的 runtime 再把 app.py 跑起来
+├─ runtime\            自带 Python 3.13 + 用到的库（117 MB）
+├─ app.py 等源码
+└─ web\                界面
 ```
 
-`本地翻译.exe` 这个启动器只有几兆，它找到本机的 Python 再跑 `app.py`。为什么界面
-本身不冻进 exe：pywebview 在 Windows 上靠 pythonnet 调 .NET 的 WinForms，而
-pythonnet 在 PyInstaller 冻出来的进程里加载不了随包的 `Python.Runtime.dll`，
-clr_loader 会报解析不到 `Python.Runtime.Loader.Initialize`；换成 CoreCLR 倒是能加载，
-但 pywebview 带的 WebView2 控件是给 .NET Framework 编的，.NET 8 里没有
-`System.Windows.Forms.ContextMenu`，一样起不来。两条路都试过，都走不通，所以 exe
-退回到只做启动。源码版不需要装 .NET，也不用管这些。
+重新生成：
 
-`desktop.runtimeconfig.json`、`runtime_hook_clr.py`、两个 spec 文件都留在仓库里，
-哪天 pythonnet 修好了可以直接接着用。
+```powershell
+# 1. 攒运行时：拷一份 Python，去掉用不上的 Doc、test、idlelib
+robocopy "C:\Program Files\Python313" "便携版\runtime" /E /XD Doc include libs Scripts test idlelib turtledemo
+# 再把 webview、pythonnet、clr_loader、pystray、PIL、numpy、numpy.libs、soundcard、
+# cffi、pycparser、proxy_tools、clr.py、six.py 和 _cffi_backend 复制进 runtime\Lib\site-packages
+# 2. 编译启动器
+python -m PyInstaller --noconfirm --onedir --noconsole --name 本地翻译 launcher.py
+# 3. 把 dist_launcher\本地翻译\* 连同程序源码放进 便携版\
+```
+
+图片翻译没塞进包里：manga-ocr 拖着 2.5 GB 的 torch。这一页会先找一个装了 manga-ocr
+的 Python（先看自己，再看系统里装的），找到就用它跑。
+
+为什么不把界面冻成一个单文件 exe —— 两条路都试到底了，都走不通：
+
+- PyInstaller 冻出来的进程里 pythonnet 加载不了随包的 `Python.Runtime.dll`，
+  clr_loader 报解析不到 `Python.Runtime.Loader.Initialize`（连 AppDomain 都建不出来，
+  换普通 .NET 程序集探针也一样）；
+- 改用 CoreCLR 能加载了，但 pywebview 自带的 `Microsoft.Web.WebView2.WinForms.dll`
+  是照 .NET Framework 编的，引用了 .NET 8 里已经删掉的 `System.Windows.Forms.ContextMenu`。
+
+`本地翻译.spec`、`翻译调试版.spec`、`runtime_hook_clr.py`、`desktop.runtimeconfig.json`
+留在仓库里，哪天 pythonnet 支持冻结了可以直接接着用。
 
 ### 四个入口
 

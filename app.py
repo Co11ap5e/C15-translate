@@ -80,6 +80,39 @@ def http_json(path, payload=None, timeout=180):
     return json.loads(urllib.request.urlopen(req, timeout=timeout).read())
 
 
+_image_py = None      # 图片翻译实际用哪个 Python，查一次就记住
+
+
+def _has_module(py, mod):
+    try:
+        flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        r = subprocess.run([py, "-c", "import %s" % mod], capture_output=True,
+                           creationflags=flags, timeout=60)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def pick_image_python():
+    """图片翻译要 manga-ocr，它带着 2.5 GB 的 torch，便携包不塞这个。
+    自己这个解释器里没有就找本机装的 Python 顶上，都没有就用自己（会报错提示）。"""
+    global _image_py
+    if _image_py:
+        return _image_py
+    import shutil as _sh
+    cands = [] if FROZEN else [sys.executable]
+    for name in ("python", "python3"):
+        p = _sh.which(name)
+        if p:
+            cands.append(p)
+    cands.append(r"C:\Program Files\Python313\python.exe")
+    for py in cands:
+        if py and os.path.isfile(py) and _has_module(py, "manga_ocr"):
+            _image_py = py
+            return py
+    return sys.executable
+
+
 def service_alive():
     try:
         urllib.request.urlopen(SERVICE + "/health", timeout=3).read()
@@ -403,33 +436,30 @@ class Api:
             cmd = [sys.executable, os.path.join(BASE, script), "-f", path,
                    "--template", template or "subtitle", "--model", model, "--out", path + ".zh"]
         else:
-            cmd = [sys.executable, os.path.join(BASE, script), path, "--mode", "both", "--mt", model]
+            runner = pick_image_python()
+            cmd = [runner, os.path.join(BASE, script), path, "--mode", "both", "--mt", model]
 
         def worker():
             try:
-                # 打包后：图片翻译依赖 manga-ocr（带 2.5 GB torch），没打进 exe，
-                # 系统里装了 Python 和 manga-ocr，直接交给它跑。
-                if FROZEN and kind == "image":
-                    import shutil as _sh
-                    sys_py = _sh.which("python") or _sh.which("python3")
+                # 图片翻译要 manga-ocr（拖着 2.5 GB 的 torch），exe 和便携包里都没打进去，
+                # 本机装了就用本机的 Python 跑，脚本路径在 RES 里（见 pick_image_python）。
+                if kind == "image" and cmd[0] != sys.executable:
                     script_path = os.path.join(RES, os.path.basename(cmd[1]))
-                    if sys_py:
-                        _jobs[jid]["log"].append("图片翻译交给系统 Python 运行")
-                        f0 = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-                        p0 = subprocess.Popen([sys_py, script_path] + cmd[2:], cwd=RES,
-                                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                              text=True, encoding="utf-8", errors="replace",
-                                              creationflags=f0, bufsize=1)
-                        for line in p0.stdout:
-                            if line.strip():
-                                _jobs[jid]["log"].append(line.rstrip())
-                                if len(_jobs[jid]["log"]) > 400:
-                                    _jobs[jid]["log"] = _jobs[jid]["log"][-400:]
-                        p0.wait()
-                        _jobs[jid]["state"] = "done" if p0.returncode == 0 else "failed"
-                        _jobs[jid]["out"] = os.path.dirname(os.path.abspath(path))
-                        return
-                    _jobs[jid]["log"].append("没找到系统 Python，无法运行图片翻译")
+                    _jobs[jid]["log"].append("图片翻译交给 %s 运行" % cmd[0])
+                    f0 = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+                    p0 = subprocess.Popen([cmd[0], script_path] + cmd[2:], cwd=RES,
+                                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                          text=True, encoding="utf-8", errors="replace",
+                                          creationflags=f0, bufsize=1)
+                    for line in p0.stdout:
+                        if line.strip():
+                            _jobs[jid]["log"].append(line.rstrip())
+                            if len(_jobs[jid]["log"]) > 400:
+                                _jobs[jid]["log"] = _jobs[jid]["log"][-400:]
+                    p0.wait()
+                    _jobs[jid]["state"] = "done" if p0.returncode == 0 else "failed"
+                    _jobs[jid]["out"] = os.path.dirname(os.path.abspath(path))
+                    return
                 flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
                 p = subprocess.Popen(cmd, cwd=BASE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                      text=True, encoding="utf-8", errors="replace",
