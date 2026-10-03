@@ -161,11 +161,13 @@ python app.py
 
 ### 打包
 
-用的是便携包：一个文件夹里自带 Python 运行时，双击 `本地翻译.exe` 就跑，不碰系统里装的那个 Python。
+用的是便携包，双击 `本地翻译.exe` 就是整个程序：它是 `host/Host.cs` 编译出来的一个小宿主（30 行），
+自己加载 `runtime\python313.dll` 再调 `Py_BytesMain` 把 app.py 跑起来。进程就是它本身，
+任务管理器里不会出现 python.exe，也不是「启动器再去启动一个脚本」。
 
 ```
 便携版\                146 MB
-├─ 本地翻译.exe         启动器，只负责找到身边的 runtime 再把 app.py 跑起来
+├─ 本地翻译.exe         宿主程序：内嵌 CPython，进程就是它
 ├─ runtime\            自带 Python 3.13 + 用到的库（117 MB）
 ├─ app.py 等源码
 └─ web\                界面
@@ -178,9 +180,9 @@ python app.py
 robocopy "C:\Program Files\Python313" "便携版\runtime" /E /XD Doc include libs Scripts test idlelib turtledemo
 # 再把 webview、pythonnet、clr_loader、pystray、PIL、numpy、numpy.libs、soundcard、
 # cffi、pycparser、proxy_tools、clr.py、six.py 和 _cffi_backend 复制进 runtime\Lib\site-packages
-# 2. 编译启动器
-python -m PyInstaller --noconfirm --onedir --noconsole --name 本地翻译 launcher.py
-# 3. 把 dist_launcher\本地翻译\* 连同程序源码放进 便携版\
+# 2. 编译宿主（用系统自带的 csc 就行，不需要装 .NET SDK）
+& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /target:winexe /out:便携版\本地翻译.exe host\Host.cs
+# 3. 把程序源码（app.py、web\ 等）放进 便携版\
 ```
 
 图片翻译没塞进包里：manga-ocr 拖着 2.5 GB 的 torch。这一页会先找一个装了 manga-ocr
